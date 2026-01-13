@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import AppShell from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -13,17 +13,188 @@ import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { useApi } from "@/lib/useApi";
 
+const statuses = [
+  "PURCHASED",
+  "PACKED_READY",
+  "DISPATCHED_TO_FACTORY",
+  "RECEIVED_AT_FACTORY",
+  "RETURNED_FROM_FACTORY",
+  "RECEIVED_AT_SHOP",
+  "ADDED_TO_STOCK",
+  "HANDED_TO_DELIVERY",
+  "DELIVERED_TO_CUSTOMER",
+  "ON_HOLD",
+  "CANCELLED"
+];
+
+function CreateJobModal({
+  onClose,
+  onSuccess
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { request } = useApi();
+  const [formData, setFormData] = useState({
+    customer_name: "",
+    customer_phone: "",
+    item_description: "",
+    approximate_weight: "",
+    purchase_value: "",
+    notes: ""
+  });
+  const [error, setError] = useState("");
+
+  const createMutation = useMutation({
+    mutationFn: () =>
+      request("/jobs", {
+        method: "POST",
+        body: JSON.stringify({
+          ...formData,
+          approximate_weight: formData.approximate_weight ? parseFloat(formData.approximate_weight) : null,
+          purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null
+        })
+      }),
+    onSuccess: () => {
+      onSuccess();
+      onClose();
+    },
+    onError: () => {
+      setError("Failed to create job");
+    }
+  });
+
+  const handleSubmit = () => {
+    setError("");
+    if (!formData.item_description.trim()) {
+      setError("Item description is required");
+      return;
+    }
+    createMutation.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="mb-4 text-lg font-semibold">Create New Job</h2>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Customer Name</label>
+              <Input
+                placeholder="Customer name"
+                value={formData.customer_name}
+                onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Phone</label>
+              <Input
+                placeholder="Phone number"
+                value={formData.customer_phone}
+                onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Item Description *</label>
+            <Input
+              placeholder="Describe the item"
+              value={formData.item_description}
+              onChange={(e) => setFormData({ ...formData, item_description: e.target.value })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Weight (g)</label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Approximate weight"
+                value={formData.approximate_weight}
+                onChange={(e) => setFormData({ ...formData, approximate_weight: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Purchase Value</label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Value"
+                value={formData.purchase_value}
+                onChange={(e) => setFormData({ ...formData, purchase_value: e.target.value })}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Notes</label>
+            <textarea
+              className="w-full rounded-xl border border-ink/10 bg-white/80 px-3 py-2 text-sm"
+              rows={3}
+              placeholder="Additional notes"
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            />
+          </div>
+          {error && <p className="text-sm text-red-500">{error}</p>}
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            className="rounded-xl px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <Button onClick={handleSubmit} disabled={createMutation.isPending}>
+            {createMutation.isPending ? "Creating..." : "Create Job"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ItemsPage() {
   const { request } = useApi();
-  const [query, setQuery] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Filters
+  const [jobIdFilter, setJobIdFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [phoneFilter, setPhoneFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
+  const buildQueryParams = () => {
+    const params = new URLSearchParams();
+    if (jobIdFilter) params.append("job_id", jobIdFilter);
+    if (statusFilter) params.append("status", statusFilter);
+    if (phoneFilter) params.append("phone", phoneFilter);
+    if (fromDate) params.append("from_date", new Date(fromDate).toISOString());
+    if (toDate) params.append("to_date", new Date(toDate).toISOString());
+    return params.toString();
+  };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", query],
-    queryFn: () =>
-      request<any[]>(query ? `/jobs?job_id=${encodeURIComponent(query)}` : "/jobs")
+    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, fromDate, toDate],
+    queryFn: () => {
+      const queryString = buildQueryParams();
+      return request<any[]>(queryString ? `/jobs?${queryString}` : "/jobs");
+    }
   });
 
   const jobs = jobsQuery.data || [];
+
+  const clearFilters = () => {
+    setJobIdFilter("");
+    setStatusFilter("");
+    setPhoneFilter("");
+    setFromDate("");
+    setToDate("");
+  };
+
+  const hasFilters = jobIdFilter || statusFilter || phoneFilter || fromDate || toDate;
 
   return (
     <AppShell>
@@ -34,20 +205,86 @@ export default function ItemsPage() {
             <h1 className="text-2xl font-semibold">Search & Track</h1>
           </div>
           <div className="flex gap-2">
-            <Input
-              placeholder="Search by job ID"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-            <Button variant="outline" onClick={() => jobsQuery.refetch()}>
-              Search
+            <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
+              {showFilters ? "Hide Filters" : "Show Filters"}
+            </Button>
+            <Button onClick={() => setShowCreateModal(true)}>
+              + Create Job
             </Button>
           </div>
         </div>
+
+        {/* Filters Section */}
+        {showFilters && (
+          <div className="rounded-xl border border-ink/10 bg-slate-50 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-medium text-slate-700">Filters</h3>
+              {hasFilters && (
+                <button
+                  className="text-sm text-blue-600 hover:underline"
+                  onClick={clearFilters}
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
+            <div className="grid gap-3 md:grid-cols-5">
+              <div>
+                <label className="mb-1 block text-xs text-slate-600">Job ID</label>
+                <Input
+                  placeholder="Search job ID"
+                  value={jobIdFilter}
+                  onChange={(e) => setJobIdFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-600">Status</label>
+                <select
+                  className="w-full rounded-xl border border-ink/10 bg-white px-3 py-2 text-sm"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="">All Statuses</option>
+                  {statuses.map((s) => (
+                    <option key={s} value={s}>
+                      {s.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-600">Phone</label>
+                <Input
+                  placeholder="Customer phone"
+                  value={phoneFilter}
+                  onChange={(e) => setPhoneFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-600">From Date</label>
+                <Input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-600">To Date</label>
+                <Input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <Table>
           <THead>
             <TR>
               <TH>Job ID</TH>
+              <TH>Customer</TH>
               <TH>Status</TH>
               <TH>Holder</TH>
               <TH>Last Scan</TH>
@@ -59,12 +296,20 @@ export default function ItemsPage() {
               <TR key={job.job_id}>
                 <TD>{job.job_id}</TD>
                 <TD>
+                  <div>
+                    <div className="font-medium">{job.customer_name || "-"}</div>
+                    {job.customer_phone && (
+                      <div className="text-xs text-slate-500">{job.customer_phone}</div>
+                    )}
+                  </div>
+                </TD>
+                <TD>
                   <Badge>{job.current_status}</Badge>
                 </TD>
                 <TD>{job.current_holder_role}</TD>
                 <TD>{job.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}</TD>
                 <TD>
-                  <Link className="text-sm text-teal" href={`/items/${job.job_id}`}>
+                  <Link className="text-sm text-teal hover:underline" href={`/items/${job.job_id}`}>
                     View
                   </Link>
                 </TD>
@@ -74,6 +319,13 @@ export default function ItemsPage() {
         </Table>
         {!jobs.length && <p className="text-sm text-slate">No matching jobs.</p>}
       </Card>
+
+      {showCreateModal && (
+        <CreateJobModal
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => jobsQuery.refetch()}
+        />
+      )}
     </AppShell>
   );
 }
