@@ -18,8 +18,9 @@ export default function AuditPage() {
     <AppShell>
       <Card>
         <div className="mb-4">
-          <p className="text-xs uppercase text-slate">Audit Log</p>
-          <h1 className="text-2xl font-semibold">Immutable Status Events</h1>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate">Audit Log</p>
+          <h1 className="text-2xl font-semibold font-display">Immutable Status Events</h1>
+          <p className="mt-2 text-sm text-slate">Review the full chain of custody for every item.</p>
         </div>
         <Table>
           <THead>

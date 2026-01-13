@@ -5,16 +5,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#111113",
-        bone: "#f7f3ee",
-        sand: "#efe7dc",
-        teal: "#0f766e",
-        amber: "#d97706",
-        slate: "#475569"
+        ink: "#101714",
+        forest: "#0f3d33",
+        pine: "#0b2d25",
+        gold: "#d4a15c",
+        sand: "#f7f2e9",
+        cloud: "#efe4d4",
+        slate: "#5a6b63"
       },
       fontFamily: {
-        display: ["'Space Grotesk'", "sans-serif"],
-        body: ["'Space Grotesk'", "sans-serif"]
+        display: ["var(--font-display)", "serif"],
+        body: ["var(--font-body)", "sans-serif"]
       },
       keyframes: {
         fadeUp: {

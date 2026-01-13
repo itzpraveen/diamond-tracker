@@ -32,20 +32,33 @@ export default function HomePage() {
   if (!accessToken) {
     return (
       <div className="min-h-screen px-6 py-16">
-        <div className="mx-auto max-w-md">
-          <Card className="space-y-4">
-            <div className="flex items-center gap-3">
+        <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="flex flex-col justify-between rounded-3xl border border-ink/10 bg-white/80 p-8 shadow-[var(--shadow)]">
+            <div>
               <Image
                 src="/logo.png"
                 alt="Majestic Tracking"
-                width={48}
-                height={48}
-                className="rounded-lg border border-ink/10 bg-white"
+                width={64}
+                height={64}
+                className="rounded-2xl border border-ink/10 bg-white"
               />
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate">Majestic Tracking</p>
-                <h1 className="mt-2 text-2xl font-semibold">Admin Console Login</h1>
-              </div>
+              <p className="mt-6 text-xs uppercase tracking-[0.4em] text-slate">Majestic Tracking</p>
+              <h1 className="mt-4 text-3xl font-semibold font-display">Luxury Logistics, Fully Accounted.</h1>
+              <p className="mt-4 text-sm text-slate">
+                Track every item with precision handovers, audit-grade scanning, and calm, deliberate workflows.
+              </p>
+            </div>
+            <div className="mt-8 flex flex-wrap gap-3 text-xs text-slate">
+              <span className="rounded-full border border-ink/10 bg-white/70 px-3 py-1">Secure chain of custody</span>
+              <span className="rounded-full border border-ink/10 bg-white/70 px-3 py-1">Dispatch intelligence</span>
+              <span className="rounded-full border border-ink/10 bg-white/70 px-3 py-1">Exceptional audit trail</span>
+            </div>
+          </div>
+          <Card className="space-y-5">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-slate">Sign in</p>
+              <h2 className="mt-2 text-2xl font-semibold font-display">Admin Console</h2>
+              <p className="mt-2 text-sm text-slate">Use your credentials to continue.</p>
             </div>
             <Input
               placeholder="Username"
@@ -58,7 +71,7 @@ export default function HomePage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            {error && <p className="text-sm text-amber">{error}</p>}
+            {error && <p className="text-sm text-[#8a5c1b]">{error}</p>}
             <Button className="w-full" onClick={handleLogin}>
               Sign in
             </Button>

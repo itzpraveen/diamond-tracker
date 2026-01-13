@@ -64,10 +64,11 @@ function ResetPasswordModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="mb-4 text-lg font-semibold">Reset Password</h2>
-        <p className="mb-4 text-sm text-slate-600">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl bg-white/95 p-6 shadow-[var(--shadow)]">
+        <p className="text-xs uppercase tracking-[0.3em] text-slate">Security</p>
+        <h2 className="mt-2 text-lg font-semibold font-display">Reset Password</h2>
+        <p className="mb-4 mt-2 text-sm text-slate-600">
           Reset password for <span className="font-medium">{user.username}</span>
         </p>
         <div className="space-y-3">
@@ -87,7 +88,7 @@ function ResetPasswordModal({
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button
-            className="rounded-xl px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            className="rounded-full border border-ink/10 px-4 py-2 text-xs font-semibold text-slate transition hover:border-ink/30 hover:text-ink"
             onClick={onClose}
           >
             Cancel
@@ -131,17 +132,18 @@ function EditUserModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="mb-4 text-lg font-semibold">Edit User</h2>
-        <p className="mb-4 text-sm text-slate-600">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl bg-white/95 p-6 shadow-[var(--shadow)]">
+        <p className="text-xs uppercase tracking-[0.3em] text-slate">User Settings</p>
+        <h2 className="mt-2 text-lg font-semibold font-display">Edit User</h2>
+        <p className="mb-4 mt-2 text-sm text-slate-600">
           Editing <span className="font-medium">{user.username}</span>
         </p>
         <div className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Role</label>
             <select
-              className="w-full rounded-xl border border-ink/10 bg-white/80 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
               value={role}
               onChange={(e) => setRole(e.target.value)}
             >
@@ -158,7 +160,7 @@ function EditUserModal({
               type="button"
               onClick={() => setIsActive(!isActive)}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                isActive ? "bg-green-500" : "bg-slate-300"
+                isActive ? "bg-forest" : "bg-slate-300"
               }`}
             >
               <span
@@ -167,7 +169,7 @@ function EditUserModal({
                 }`}
               />
             </button>
-            <span className={`text-sm ${isActive ? "text-green-600" : "text-slate-500"}`}>
+            <span className={`text-sm ${isActive ? "text-forest" : "text-slate-500"}`}>
               {isActive ? "Active" : "Inactive"}
             </span>
           </div>
@@ -175,7 +177,7 @@ function EditUserModal({
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button
-            className="rounded-xl px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            className="rounded-full border border-ink/10 px-4 py-2 text-xs font-semibold text-slate transition hover:border-ink/30 hover:text-ink"
             onClick={onClose}
           >
             Cancel
@@ -217,12 +219,13 @@ export default function UsersPage() {
 
   return (
     <AppShell>
-      <Card className="space-y-4">
+      <Card className="space-y-6">
         <div>
-          <p className="text-xs uppercase text-slate">Users</p>
-          <h1 className="text-2xl font-semibold">Roles & Access</h1>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate">Users</p>
+          <h1 className="text-2xl font-semibold font-display">Roles & Access</h1>
+          <p className="mt-2 text-sm text-slate">Control access levels, roles, and credentials.</p>
         </div>
-        <div className="grid gap-2 md:grid-cols-4">
+        <div className="grid gap-2 rounded-2xl border border-ink/10 bg-white/70 p-3 md:grid-cols-4">
           <Input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
           <Input
             placeholder="Password"
@@ -231,7 +234,7 @@ export default function UsersPage() {
             onChange={(e) => setPassword(e.target.value)}
           />
           <select
-            className="rounded-xl border border-ink/10 bg-white/80 px-3 py-2 text-sm"
+            className="rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
             value={role}
             onChange={(e) => setRole(e.target.value)}
           >
@@ -263,13 +266,13 @@ export default function UsersPage() {
                 <TD>
                   <div className="flex gap-3">
                     <button
-                      className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-ink transition hover:border-ink/30"
                       onClick={() => setEditUser({ id: user.id, username: user.username, role: user.role, is_active: user.is_active })}
                     >
                       Edit
                     </button>
                     <button
-                      className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-ink transition hover:border-ink/30"
                       onClick={() => setResetUser({ id: user.id, username: user.username })}
                     >
                       Reset Password

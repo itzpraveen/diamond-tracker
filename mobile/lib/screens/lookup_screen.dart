@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:diamond_tracker_mobile/state/providers.dart';
+import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
+import 'package:diamond_tracker_mobile/ui/majestic_theme.dart';
 
 class LookupScreen extends ConsumerStatefulWidget {
   const LookupScreen({super.key});
@@ -16,46 +18,76 @@ class _LookupScreenState extends ConsumerState<LookupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Lookup Job')),
-      body: Padding(
+    return MajesticScaffold(
+      title: 'Lookup Job',
+      padding: EdgeInsets.zero,
+      child: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _queryController,
-              decoration: const InputDecoration(labelText: 'Job ID'),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Job Lookup', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _queryController,
+                    decoration: const InputDecoration(labelText: 'Job ID'),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final api = ref.read(apiClientProvider);
+                        final job = await api.getJob(_queryController.text.trim());
+                        setState(() => _job = job);
+                      },
+                      child: const Text('Search'),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            ElevatedButton(
-              onPressed: () async {
-                final api = ref.read(apiClientProvider);
-                final job = await api.getJob(_queryController.text.trim());
-                setState(() => _job = job);
-              },
-              child: const Text('Search'),
-            ),
+          ),
+          if (_job != null) ...[
             const SizedBox(height: 16),
-            if (_job != null)
-              Expanded(
-                child: ListView(
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Status: ${_job!['current_status']}'),
+                    Text('Status', style: Theme.of(context).textTheme.labelLarge?.copyWith(letterSpacing: 1.8)),
+                    const SizedBox(height: 6),
+                    Text(
+                      _job!['current_status'] ?? '-',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 8),
-                    Text(_job!['item_description'] ?? ''),
+                    Text(
+                      _job!['item_description'] ?? '',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
                     const SizedBox(height: 12),
-                    const Text('Timeline', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Timeline', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
                     ...(_job!['status_events'] as List<dynamic>).map((event) {
                       return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.timeline, color: MajesticColors.forest),
                         title: Text('${event['from_status']} -> ${event['to_status']}'),
                         subtitle: Text(event['timestamp']),
                       );
                     })
                   ],
                 ),
-              )
-          ],
-        ),
+              ),
+            ),
+          ]
+        ],
       ),
     );
   }

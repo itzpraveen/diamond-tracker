@@ -21,13 +21,14 @@ export default function ReportsPage() {
 
   return (
     <AppShell>
-      <Card className="space-y-4">
+      <Card className="space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs uppercase text-slate">Reports</p>
-            <h1 className="text-2xl font-semibold">Exports & Delays</h1>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate">Reports</p>
+            <h1 className="text-2xl font-semibold font-display">Exports & Delays</h1>
+            <p className="mt-2 text-sm text-slate">Generate CSV exports or review delayed batches.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-ink/10 bg-white/70 p-2">
             <Button variant="outline" onClick={() => exportCsv("jobs")}>Export Jobs</Button>
             <Button variant="outline" onClick={() => exportCsv("batches")}>Export Batches</Button>
             <Button variant="outline" onClick={() => exportCsv("incidents")}>Export Incidents</Button>

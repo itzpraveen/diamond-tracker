@@ -3,20 +3,24 @@
 @tailwind utilities;
 
 :root {
-  --bg-base: #f7f3ee;
-  --bg-accent: #efe7dc;
-  --ink: #111113;
-  --muted: #4b5563;
-  --accent: #0f766e;
-  --accent-warm: #d97706;
-  --card: rgba(255, 255, 255, 0.8);
-  --border: rgba(17, 17, 19, 0.08);
+  --bg-base: #f7f2e9;
+  --bg-accent: #efe4d4;
+  --ink: #101714;
+  --muted: #5a6b63;
+  --accent: #0f3d33;
+  --accent-strong: #0b2d25;
+  --accent-gold: #d4a15c;
+  --accent-gold-soft: #f1d7a6;
+  --card: rgba(255, 255, 255, 0.9);
+  --border: rgba(16, 23, 20, 0.12);
+  --shadow: 0 28px 70px rgba(15, 23, 20, 0.14);
 }
 
 body {
-  background: radial-gradient(circle at top, rgba(15, 118, 110, 0.12), transparent 40%),
-    radial-gradient(circle at 80% 20%, rgba(217, 119, 6, 0.12), transparent 35%),
-    linear-gradient(180deg, var(--bg-base), var(--bg-accent));
+  background: radial-gradient(circle at 8% 12%, rgba(15, 61, 51, 0.12), transparent 42%),
+    radial-gradient(circle at 85% 18%, rgba(212, 161, 92, 0.16), transparent 40%),
+    radial-gradient(circle at 50% 120%, rgba(15, 61, 51, 0.08), transparent 55%),
+    linear-gradient(180deg, var(--bg-base), #fbf7f1 55%, var(--bg-accent));
   color: var(--ink);
 }
 
@@ -24,8 +28,9 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background-image: radial-gradient(rgba(17, 17, 19, 0.05) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image: linear-gradient(rgba(16, 23, 20, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 23, 20, 0.04) 1px, transparent 1px);
+  background-size: 28px 28px;
   pointer-events: none;
   opacity: 0.35;
   z-index: -1;

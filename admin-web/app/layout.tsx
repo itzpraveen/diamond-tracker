@@ -1,12 +1,19 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { Space_Grotesk } from "next/font/google";
+import { Fraunces, Manrope } from "next/font/google";
 
 import Providers from "./providers";
 
-const spaceGrotesk = Space_Grotesk({
+const fraunces = Fraunces({
   subsets: ["latin"],
-  variable: "--font-display"
+  variable: "--font-display",
+  weight: ["400", "500", "600", "700"]
+});
+
+const manrope = Manrope({
+  subsets: ["latin"],
+  variable: "--font-body",
+  weight: ["400", "500", "600", "700"]
 });
 
 export const metadata: Metadata = {
@@ -21,7 +28,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${spaceGrotesk.className} ${spaceGrotesk.variable}`}> 
+      <body className={`${manrope.className} ${fraunces.variable} ${manrope.variable} font-body antialiased`}> 
         <Providers>{children}</Providers>
       </body>
     </html>

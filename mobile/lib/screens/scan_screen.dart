@@ -5,6 +5,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:diamond_tracker_mobile/models/enums.dart';
 import 'package:diamond_tracker_mobile/state/auth_controller.dart';
 import 'package:diamond_tracker_mobile/state/providers.dart';
+import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key, this.targetStatus});
@@ -25,50 +26,84 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Widget build(BuildContext context) {
     final role = ref.watch(authControllerProvider).role;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Scan')),
-      body: Column(
+    return MajesticScaffold(
+      title: 'Scan',
+      padding: EdgeInsets.zero,
+      child: Column(
         children: [
           Expanded(
-            child: MobileScanner(
-              onDetect: (capture) async {
-                if (_processing) return;
-                final code = capture.barcodes.first.rawValue;
-                if (code == null) return;
-                setState(() {
-                  _processing = true;
-                  _scannedCode = code;
-                });
-                final api = ref.read(apiClientProvider);
-                final job = await api.getJob(code);
-                setState(() {
-                  _job = job;
-                });
-              },
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Stack(
+                  children: [
+                    MobileScanner(
+                      onDetect: (capture) async {
+                        if (_processing) return;
+                        final code = capture.barcodes.first.rawValue;
+                        if (code == null) return;
+                        setState(() {
+                          _processing = true;
+                          _scannedCode = code;
+                        });
+                        final api = ref.read(apiClientProvider);
+                        final job = await api.getJob(code);
+                        setState(() {
+                          _job = job;
+                        });
+                      },
+                    ),
+                    Positioned(
+                      top: 16,
+                      left: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.4),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _processing ? 'Processing' : 'Ready to scan',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
           if (_scannedCode != null)
             Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Job: $_scannedCode', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Text(_job?['item_description'] ?? ''),
-                  const SizedBox(height: 8),
-                  Row(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Switch(value: _offline, onChanged: (v) => setState(() => _offline = v)),
-                      const Text('Offline mode')
+                      Text('Job $_scannedCode', style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      Text(_job?['item_description'] ?? ''),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        value: _offline,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Offline mode'),
+                        onChanged: (v) => setState(() => _offline = v),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: role == null ? null : () => _confirmScan(context, role),
+                          child: const Text('Confirm Next Status'),
+                        ),
+                      )
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  ElevatedButton(
-                    onPressed: role == null ? null : () => _confirmScan(context, role),
-                    child: const Text('Confirm Next Status'),
-                  )
-                ],
+                ),
               ),
             )
         ],

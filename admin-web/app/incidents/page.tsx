@@ -31,8 +31,9 @@ export default function IncidentsPage() {
     <AppShell>
       <Card>
         <div className="mb-4">
-          <p className="text-xs uppercase text-slate">Incidents</p>
-          <h1 className="text-2xl font-semibold">Exceptions & Resolutions</h1>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate">Incidents</p>
+          <h1 className="text-2xl font-semibold font-display">Exceptions & Resolutions</h1>
+          <p className="mt-2 text-sm text-slate">Investigate discrepancies and close the loop on issues.</p>
         </div>
         <Table>
           <THead>

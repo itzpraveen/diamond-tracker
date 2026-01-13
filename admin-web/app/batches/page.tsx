@@ -79,15 +79,16 @@ function BatchDetailModal({
   const canClose = batch?.status === "DISPATCHED";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white/95 p-6 shadow-[var(--shadow)]">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">{batch?.batch_code}</h2>
-            <Badge>{batch?.status}</Badge>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate">Batch</p>
+            <h2 className="text-lg font-semibold font-display">{batch?.batch_code}</h2>
+            <Badge className="mt-2">{batch?.status}</Badge>
           </div>
           <button
-            className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-slate transition hover:border-ink/30 hover:text-ink"
             onClick={onClose}
           >
             Close
@@ -95,7 +96,7 @@ function BatchDetailModal({
         </div>
 
         {/* Batch Info */}
-        <div className="mb-4 grid grid-cols-3 gap-4 rounded-xl border border-ink/10 bg-slate-50 p-4">
+        <div className="mb-4 grid grid-cols-3 gap-4 rounded-2xl border border-ink/10 bg-white/80 p-4">
           <div>
             <p className="text-xs text-slate-500">Items</p>
             <p className="text-lg font-semibold">{batch?.item_count || 0}</p>
@@ -117,8 +118,9 @@ function BatchDetailModal({
         {/* Add Item Section */}
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canAddItems && (
-            <div className="mb-4 rounded-xl border border-ink/10 bg-slate-50 p-4">
-              <p className="mb-2 text-sm font-medium">Add Item to Batch</p>
+            <div className="mb-4 rounded-2xl border border-ink/10 bg-white/80 p-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.3em] text-slate">Add Item</p>
+              <p className="text-sm font-semibold">Add Item to Batch</p>
               <div className="flex gap-2">
                 <Input
                   placeholder="Enter Job ID (e.g., DJ-2026-000001)"
@@ -141,8 +143,9 @@ function BatchDetailModal({
         {/* Dispatch Section */}
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canDispatch && (
-            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
-              <p className="mb-2 text-sm font-medium">Dispatch Batch</p>
+            <div className="mb-4 rounded-2xl border border-[#e8d0a5] bg-[#fff7eb] p-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.3em] text-[#8a5c1b]">Dispatch</p>
+              <p className="text-sm font-semibold">Dispatch Batch</p>
               <div className="mb-3 grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs text-slate-600">Dispatch Date</label>
@@ -177,8 +180,9 @@ function BatchDetailModal({
         {/* Close Section */}
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canClose && (
-            <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4">
-              <p className="mb-2 text-sm font-medium">Close Batch</p>
+            <div className="mb-4 rounded-2xl border border-[#b9d6cd] bg-[#eef6f2] p-4">
+              <p className="mb-2 text-xs uppercase tracking-[0.3em] text-[#0f3d33]">Close</p>
+              <p className="text-sm font-semibold">Close Batch</p>
               <Button
                 onClick={() => closeMutation.mutate()}
                 disabled={closeMutation.isPending}
@@ -195,7 +199,7 @@ function BatchDetailModal({
         {/* Actions */}
         <div className="mb-4 flex gap-2">
           <a
-            className="inline-flex items-center justify-center rounded-full bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-teal"
+            className="inline-flex items-center justify-center rounded-xl border border-ink/10 bg-white/80 px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/30 hover:bg-white"
             href={manifestUrl}
             target="_blank"
             rel="noreferrer"
@@ -206,7 +210,7 @@ function BatchDetailModal({
 
         {/* Items Table */}
         <div>
-          <p className="mb-2 text-sm font-medium">Items in Batch</p>
+          <p className="mb-2 text-xs uppercase tracking-[0.3em] text-slate">Items in Batch</p>
           {batch?.items?.length > 0 ? (
             <Table>
               <THead>
@@ -264,25 +268,28 @@ export default function BatchesPage() {
 
   return (
     <AppShell>
-      <Card className="space-y-4">
+      <Card className="space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs uppercase text-slate">Batches</p>
-            <h1 className="text-2xl font-semibold">Monthly Dispatches</h1>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate">Batches</p>
+            <h1 className="text-2xl font-semibold font-display">Monthly Dispatches</h1>
+            <p className="mt-2 text-sm text-slate">Create or open dispatch batches, manage manifests, and track returns.</p>
           </div>
           <RoleGate roles={["Admin", "Dispatch"]}>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-ink/10 bg-white/70 p-2">
               <Input
                 placeholder="Month (1-12)"
+                className="w-32"
                 value={month}
                 onChange={(event) => setMonth(event.target.value)}
               />
               <Input
                 placeholder="Year"
+                className="w-28"
                 value={year}
                 onChange={(event) => setYear(event.target.value)}
               />
-              <Button onClick={() => createMutation.mutate()}>Create / Select</Button>
+              <Button onClick={() => createMutation.mutate()}>Create or Open</Button>
             </div>
           </RoleGate>
         </div>
@@ -309,7 +316,7 @@ export default function BatchesPage() {
                 <TD>{batch.item_count}</TD>
                 <TD>
                   <button
-                    className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                    className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-ink transition hover:border-ink/30 hover:bg-white/90"
                     onClick={() => setSelectedBatchId(batch.id)}
                   >
                     View Details
