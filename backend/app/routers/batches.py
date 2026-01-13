@@ -1,0 +1,168 @@
+from datetime import datetime, timezone
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app.deps import require_roles
+from app.models import Batch, BatchItem, BatchStatus, Branch, ItemJob, Role, Status, StatusEvent
+from app.schemas import BatchAddItem, BatchCreate, BatchDetail, BatchDispatchRequest, BatchOut, JobOut
+from app.utils.pdf import generate_manifest_pdf
+from app.utils.transitions import STATUS_HOLDER_ROLE
+
+router = APIRouter(prefix="/batches", tags=["batches"])
+
+
+def _get_default_branch(db: Session) -> Branch:
+    branch = db.query(Branch).first()
+    if not branch:
+        branch = Branch(name="Main Branch")
+        db.add(branch)
+        db.commit()
+        db.refresh(branch)
+    return branch
+
+
+def _get_batch(db: Session, batch_id: str) -> Batch:
+    try:
+        batch_uuid = uuid.UUID(batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid batch id") from exc
+    batch = db.query(Batch).filter(Batch.id == batch_uuid).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return batch
+
+
+def _get_job_by_code(db: Session, job_code: str) -> ItemJob:
+    job = db.query(ItemJob).filter(ItemJob.job_id == job_code).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("", response_model=BatchOut)
+def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
+    now = datetime.now(timezone.utc)
+    year = payload.year or now.year
+    month = payload.month or now.month
+    batch_code = f"BATCH-{year}-{month:02d}"
+
+    existing = db.query(Batch).filter(Batch.batch_code == batch_code).first()
+    if existing:
+        return existing
+
+    branch = _get_default_branch(db)
+    batch = Batch(
+        batch_code=batch_code,
+        branch_id=branch.id,
+        created_by=user.id,
+        expected_return_date=payload.expected_return_date,
+        status=BatchStatus.CREATED,
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+@router.get("", response_model=list[BatchOut])
+def list_batches(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK))):
+    return db.query(Batch).order_by(Batch.created_at.desc()).limit(200).all()
+
+
+@router.post("/{batch_id}/items", response_model=BatchOut)
+def add_item(batch_id: str, payload: BatchAddItem, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
+    batch = _get_batch(db, batch_id)
+    job = _get_job_by_code(db, payload.job_id)
+    if job.current_status != Status.PACKED_READY:
+        raise HTTPException(status_code=400, detail="Only PACKED_READY items can be added")
+
+    existing = db.query(BatchItem).filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Item already in batch")
+
+    db.add(BatchItem(batch_id=batch.id, job_id=job.id))
+    batch.item_count += 1
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+@router.post("/{batch_id}/dispatch", response_model=BatchOut)
+def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
+    batch = _get_batch(db, batch_id)
+    items = db.query(BatchItem).filter(BatchItem.batch_id == batch.id).all()
+    if not items:
+        raise HTTPException(status_code=400, detail="Batch has no items")
+
+    jobs = [item.job for item in items]
+    for job in jobs:
+        if job.current_status != Status.PACKED_READY:
+            raise HTTPException(status_code=400, detail=f"Job {job.job_id} is not PACKED_READY")
+
+    for job in jobs:
+        previous = job.current_status
+        job.current_status = Status.DISPATCHED_TO_FACTORY
+        job.current_holder_role = STATUS_HOLDER_ROLE[Status.DISPATCHED_TO_FACTORY]
+        job.current_holder_user_id = user.id
+        job.last_scan_at = datetime.now(timezone.utc)
+        db.add(
+            StatusEvent(
+                job_id=job.id,
+                from_status=previous,
+                to_status=Status.DISPATCHED_TO_FACTORY,
+                scanned_by_user_id=user.id,
+                scanned_by_role=user.role,
+                timestamp=datetime.now(timezone.utc),
+                remarks=f"Batch dispatch {batch.batch_code}",
+            )
+        )
+
+    batch.status = BatchStatus.DISPATCHED
+    batch.dispatch_date = payload.dispatch_date or datetime.now(timezone.utc)
+    if payload.expected_return_date:
+        batch.expected_return_date = payload.expected_return_date
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+@router.get("/{batch_id}", response_model=BatchDetail)
+def get_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK))):
+    batch = _get_batch(db, batch_id)
+    items = [item.job for item in batch.items]
+    return BatchDetail(
+        **BatchOut.model_validate(batch).model_dump(),
+        items=[JobOut.model_validate(job) for job in items],
+    )
+
+
+@router.get("/{batch_id}/manifest.pdf")
+def get_manifest(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
+    batch = _get_batch(db, batch_id)
+    jobs = [item.job for item in batch.items]
+    pdf_bytes = generate_manifest_pdf(batch, jobs)
+    return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf")
+
+
+@router.post("/{batch_id}/close", response_model=BatchOut)
+def close_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
+    batch = _get_batch(db, batch_id)
+    jobs = [item.job for item in batch.items]
+    allowed_statuses = {
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.DELIVERED_TO_CUSTOMER,
+    }
+    for job in jobs:
+        if job.current_status not in allowed_statuses:
+            raise HTTPException(status_code=400, detail="Not all items have returned")
+
+    batch.status = BatchStatus.CLOSED
+    db.commit()
+    db.refresh(batch)
+    return batch

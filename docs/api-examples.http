@@ -1,0 +1,53 @@
+### Login
+POST http://localhost:8000/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+### Refresh token
+POST http://localhost:8000/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "YOUR_REFRESH_TOKEN"
+}
+
+### Create job
+POST http://localhost:8000/jobs
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+
+{
+  "customer_name": "Asha",
+  "customer_phone": "+911234567890",
+  "item_description": "Old diamond ring",
+  "approximate_weight": 3.2,
+  "purchase_value": 15000,
+  "notes": "Minor scratches"
+}
+
+### Scan transition
+POST http://localhost:8000/jobs/DJ-2024-000001/scan
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+
+{
+  "to_status": "PACKED_READY",
+  "remarks": "Packed and sealed",
+  "device_id": "scanner-01",
+  "location": "Branch-1"
+}
+
+### Create incident
+POST http://localhost:8000/incidents
+Authorization: Bearer YOUR_ACCESS_TOKEN
+Content-Type: application/json
+
+{
+  "job_id": "DJ-2024-000001",
+  "type": "StickerMismatch",
+  "description": "Label does not match cover"
+}
