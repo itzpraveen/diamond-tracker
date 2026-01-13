@@ -69,13 +69,26 @@ class IncidentStatus(str, enum.Enum):
     RESOLVED = "RESOLVED"
 
 
+ROLE_ENUM = Enum(Role, name="role", values_callable=lambda obj: [e.value for e in obj])
+STATUS_ENUM = Enum(Status, name="status", values_callable=lambda obj: [e.value for e in obj])
+BATCH_STATUS_ENUM = Enum(
+    BatchStatus, name="batch_status", values_callable=lambda obj: [e.value for e in obj]
+)
+INCIDENT_TYPE_ENUM = Enum(
+    IncidentType, name="incident_type", values_callable=lambda obj: [e.value for e in obj]
+)
+INCIDENT_STATUS_ENUM = Enum(
+    IncidentStatus, name="incident_status", values_callable=lambda obj: [e.value for e in obj]
+)
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[Role] = mapped_column(Enum(Role))
+    role: Mapped[Role] = mapped_column(ROLE_ENUM)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -105,8 +118,8 @@ class ItemJob(Base):
     approximate_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     purchase_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     photos: Mapped[list | None] = mapped_column(JSONB, default=list)
-    current_status: Mapped[Status] = mapped_column(Enum(Status))
-    current_holder_role: Mapped[Role] = mapped_column(Enum(Role))
+    current_status: Mapped[Status] = mapped_column(STATUS_ENUM)
+    current_holder_role: Mapped[Role] = mapped_column(ROLE_ENUM)
     current_holder_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -122,10 +135,10 @@ class StatusEvent(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("item_jobs.id"))
-    from_status: Mapped[Status | None] = mapped_column(Enum(Status), nullable=True)
-    to_status: Mapped[Status] = mapped_column(Enum(Status))
+    from_status: Mapped[Status | None] = mapped_column(STATUS_ENUM, nullable=True)
+    to_status: Mapped[Status] = mapped_column(STATUS_ENUM)
     scanned_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    scanned_by_role: Mapped[Role] = mapped_column(Enum(Role))
+    scanned_by_role: Mapped[Role] = mapped_column(ROLE_ENUM)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     location: Mapped[str | None] = mapped_column(String(120), nullable=True)
     device_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -146,7 +159,7 @@ class Batch(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     dispatch_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_return_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[BatchStatus] = mapped_column(Enum(BatchStatus), default=BatchStatus.CREATED)
+    status: Mapped[BatchStatus] = mapped_column(BATCH_STATUS_ENUM, default=BatchStatus.CREATED)
     item_count: Mapped[int] = mapped_column(Integer, default=0)
     manifest_pdf_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
@@ -173,14 +186,14 @@ class Incident(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("item_jobs.id"), nullable=True)
     batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("batches.id"), nullable=True)
-    type: Mapped[IncidentType] = mapped_column(Enum(IncidentType))
+    type: Mapped[IncidentType] = mapped_column(INCIDENT_TYPE_ENUM)
     description: Mapped[str] = mapped_column(Text)
     reported_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    status: Mapped[IncidentStatus] = mapped_column(Enum(IncidentStatus), default=IncidentStatus.OPEN)
+    status: Mapped[IncidentStatus] = mapped_column(INCIDENT_STATUS_ENUM, default=IncidentStatus.OPEN)
 
 
 class RefreshToken(Base):
@@ -200,7 +213,7 @@ class JobEditAudit(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("item_jobs.id"))
     edited_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
-    edited_by_role: Mapped[Role] = mapped_column(Enum(Role))
+    edited_by_role: Mapped[Role] = mapped_column(ROLE_ENUM)
     edited_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     reason: Mapped[str] = mapped_column(Text)
     changes: Mapped[dict] = mapped_column(JSONB)
