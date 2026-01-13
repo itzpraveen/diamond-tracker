@@ -24,7 +24,7 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Diamond Dashboard'),
+        title: const Text('Majestic Tracking'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),

@@ -24,7 +24,7 @@ class _DiamondAppState extends ConsumerState<DiamondApp> {
     final authState = ref.watch(authControllerProvider);
 
     return MaterialApp(
-      title: 'Diamond Tracker',
+      title: 'Majestic Tracking',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0F766E)),
         useMaterial3: true,

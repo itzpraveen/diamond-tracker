@@ -10,8 +10,12 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Diamond Buyback Admin",
-  description: "Admin console for Diamond Buyback Tracking"
+  title: "Majestic Tracking Admin",
+  description: "Admin console for Majestic Tracking",
+  applicationName: "Majestic Tracking",
+  icons: {
+    icon: "/logo.png"
+  }
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Diamond Buyback Tracking System"
+    app_name: str = "Majestic Tracking"
     database_url: str = "postgresql+psycopg://diamond:diamond@localhost:5432/diamond"
     secret_key: str = "change-me"
     algorithm: str = "HS256"

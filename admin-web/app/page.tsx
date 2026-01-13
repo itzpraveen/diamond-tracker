@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 import AppShell from "@/components/AppShell";
 import Dashboard from "@/components/Dashboard";
@@ -33,9 +34,18 @@ export default function HomePage() {
       <div className="min-h-screen px-6 py-16">
         <div className="mx-auto max-w-md">
           <Card className="space-y-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate">Diamond</p>
-              <h1 className="mt-2 text-2xl font-semibold">Admin Console Login</h1>
+            <div className="flex items-center gap-3">
+              <Image
+                src="/logo.png"
+                alt="Majestic Tracking"
+                width={48}
+                height={48}
+                className="rounded-lg border border-ink/10 bg-white"
+              />
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-slate">Majestic Tracking</p>
+                <h1 className="mt-2 text-2xl font-semibold">Admin Console Login</h1>
+              </div>
             </div>
             <Input
               placeholder="Username"

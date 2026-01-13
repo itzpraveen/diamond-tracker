@@ -34,7 +34,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('Diamond Tracker', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Image.asset(
+                  'assets/logo.png',
+                  width: 96,
+                  height: 96,
+                ),
+                const SizedBox(height: 12),
+                const Text('Majestic Tracking', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
                 TextField(
                   controller: _usernameController,

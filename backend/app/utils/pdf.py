@@ -15,7 +15,7 @@ def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
     c = canvas.Canvas(buffer, pagesize=A7)
 
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(10 * mm, 70 * mm, "Diamond Buyback")
+    c.drawString(10 * mm, 70 * mm, "Majestic Tracking")
 
     c.setFont("Helvetica", 9)
     c.drawString(10 * mm, 62 * mm, f"Job: {job.job_id}")

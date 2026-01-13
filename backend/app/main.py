@@ -11,7 +11,7 @@ from app.utils.security import hash_password
 
 settings = get_settings()
 
-app = FastAPI(title="Diamond Buyback Tracking System")
+app = FastAPI(title=settings.app_name)
 
 app.add_middleware(
     CORSMiddleware,
