@@ -30,8 +30,8 @@ This guide defines standard operating procedures for each role. All handovers mu
 
 ### Dispatch
 - Create/select batch for the month.
-- Scan-add PACKED_READY items to batch.
-- Dispatch batch to factory (all items move to DISPATCHED_TO_FACTORY).
+- Scan PACKED_READY items into the batch (status moves to DISPATCHED_TO_FACTORY).
+- Dispatch batch to factory to confirm dispatch date and expected return.
 
 ### Factory
 - Receive items from dispatch (RECEIVED_AT_FACTORY).

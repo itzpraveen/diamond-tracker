@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import Link from "next/link";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -44,17 +44,31 @@ function CreateJobModal({
     notes: ""
   });
   const [error, setError] = useState("");
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
 
   const createMutation = useMutation({
-    mutationFn: () =>
-      request("/jobs", {
+    mutationFn: async () => {
+      const uploadedPhotos = await Promise.all(
+        photos.map((file) => {
+          const formData = new FormData();
+          formData.append("file", file);
+          return request<any>("/uploads/image", {
+            method: "POST",
+            body: formData
+          });
+        })
+      );
+      return request("/jobs", {
         method: "POST",
         body: JSON.stringify({
           ...formData,
           approximate_weight: formData.approximate_weight ? parseFloat(formData.approximate_weight) : null,
-          purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null
+          purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null,
+          photos: uploadedPhotos
         })
-      }),
+      });
+    },
     onSuccess: () => {
       onSuccess();
       onClose();
@@ -70,7 +84,29 @@ function CreateJobModal({
       setError("Item description is required");
       return;
     }
+    if (!photos.length) {
+      setError("At least one photo is required");
+      return;
+    }
     createMutation.mutate();
+  };
+
+  const handlePhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    setPhotos((prev) => [...prev, ...files]);
+    setPhotoPreviews((prev) => [...prev, ...files.map((file) => URL.createObjectURL(file))]);
+    event.target.value = "";
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, idx) => idx !== index));
+    setPhotoPreviews((prev) => {
+      const next = prev.filter((_, idx) => idx !== index);
+      const url = prev[index];
+      if (url) URL.revokeObjectURL(url);
+      return next;
+    });
   };
 
   return (
@@ -139,6 +175,32 @@ function CreateJobModal({
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
             />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Item Photos *</label>
+            <input
+              className="w-full text-sm"
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handlePhotoChange}
+            />
+            {photoPreviews.length > 0 && (
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {photoPreviews.map((src, index) => (
+                  <div key={src} className="relative">
+                    <img src={src} alt="Preview" className="h-20 w-full rounded-xl object-cover" />
+                    <button
+                      type="button"
+                      className="absolute right-1 top-1 rounded-full bg-white/80 px-2 text-xs"
+                      onClick={() => removePhoto(index)}
+                    >
+                      x
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {error && <p className="text-sm text-red-500">{error}</p>}
         </div>

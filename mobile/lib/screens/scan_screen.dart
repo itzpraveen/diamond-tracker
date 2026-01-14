@@ -8,9 +8,10 @@ import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
-  const ScanScreen({super.key, this.targetStatus});
+  const ScanScreen({super.key, this.targetStatus, this.batchId});
 
   final String? targetStatus;
+  final String? batchId;
 
   @override
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
@@ -120,12 +121,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       return;
     }
     final repo = ref.read(jobRepositoryProvider);
+    final payload = <String, dynamic>{
+      'to_status': nextStatus,
+      'remarks': 'Mobile scan',
+    };
+    if (widget.batchId != null) {
+      payload['batch_id'] = widget.batchId;
+    }
     await repo.scanJob(
       _scannedCode!,
-      {
-        'to_status': nextStatus,
-        'remarks': 'Mobile scan',
-      },
+      payload,
       offline: _offline,
     );
     if (!mounted) return;

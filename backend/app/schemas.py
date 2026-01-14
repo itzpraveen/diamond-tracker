@@ -97,6 +97,7 @@ class StatusEventOut(BaseModel):
     from_status: Optional[Status] = None
     to_status: Status
     scanned_by_user_id: UUID
+    scanned_by_username: Optional[str] = None
     scanned_by_role: Role
     timestamp: datetime
     location: Optional[str] = None
@@ -109,6 +110,7 @@ class StatusEventOut(BaseModel):
 
 
 class JobDetail(JobOut):
+    current_holder_username: Optional[str] = None
     status_events: List[StatusEventOut]
 
 
@@ -117,6 +119,7 @@ class JobScanRequest(BaseModel):
     remarks: Optional[str] = None
     device_id: Optional[str] = None
     location: Optional[str] = None
+    batch_id: Optional[UUID] = None
     override_reason: Optional[str] = None
     incident_flag: bool = False
 

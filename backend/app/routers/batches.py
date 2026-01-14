@@ -7,11 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, BatchItem, BatchStatus, Branch, ItemJob, Role, Status, StatusEvent
+from app.models import Batch, BatchItem, BatchStatus, Branch, ItemJob, Role, Status
 from app.schemas import BatchAddItem, BatchCreate, BatchDetail, BatchDispatchRequest, BatchOut, JobOut
 from app.utils.pdf import generate_manifest_pdf
-from app.utils.transitions import STATUS_HOLDER_ROLE
-
 router = APIRouter(prefix="/batches", tags=["batches"])
 
 
@@ -99,30 +97,24 @@ def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(re
         raise HTTPException(status_code=400, detail="Batch has no items")
 
     jobs = [item.job for item in items]
+    allowed_statuses = {
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.DELIVERED_TO_CUSTOMER,
+    }
     for job in jobs:
-        if job.current_status != Status.PACKED_READY:
-            raise HTTPException(status_code=400, detail=f"Job {job.job_id} is not PACKED_READY")
-
-    for job in jobs:
-        previous = job.current_status
-        job.current_status = Status.DISPATCHED_TO_FACTORY
-        job.current_holder_role = STATUS_HOLDER_ROLE[Status.DISPATCHED_TO_FACTORY]
-        job.current_holder_user_id = user.id
-        job.last_scan_at = datetime.now(timezone.utc)
-        db.add(
-            StatusEvent(
-                job_id=job.id,
-                from_status=previous,
-                to_status=Status.DISPATCHED_TO_FACTORY,
-                scanned_by_user_id=user.id,
-                scanned_by_role=user.role,
-                timestamp=datetime.now(timezone.utc),
-                remarks=f"Batch dispatch {batch.batch_code}",
-            )
-        )
+        if job.current_status not in allowed_statuses:
+            raise HTTPException(status_code=400, detail=f"Job {job.job_id} is not dispatched yet")
 
     batch.status = BatchStatus.DISPATCHED
-    batch.dispatch_date = payload.dispatch_date or datetime.now(timezone.utc)
+    if payload.dispatch_date:
+        batch.dispatch_date = payload.dispatch_date
+    elif not batch.dispatch_date:
+        batch.dispatch_date = datetime.now(timezone.utc)
     if payload.expected_return_date:
         batch.expected_return_date = payload.expected_return_date
     db.commit()

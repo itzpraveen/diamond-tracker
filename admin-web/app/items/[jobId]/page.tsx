@@ -187,11 +187,11 @@ function CreateIncidentModal({
   onSuccess: () => void;
 }) {
   const { request } = useApi();
-  const [type, setType] = useState("MISMATCH");
+  const [type, setType] = useState("StickerMismatch");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
 
-  const incidentTypes = ["MISMATCH", "DAMAGE", "DUPLICATE", "MISSING", "OTHER"];
+  const incidentTypes = ["StickerMismatch", "MissingItem", "DuplicateScan", "Damage", "Other"];
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -305,6 +305,10 @@ export default function ItemDetailPage() {
 
   const job = jobQuery.data;
   const photos = job?.photos || [];
+  const pendingSince = job?.last_scan_at || job?.created_at;
+  const pendingDays = pendingSince ? Math.floor((Date.now() - new Date(pendingSince).getTime()) / 86400000) : null;
+  const dispatchEvent = job?.status_events?.find((event: any) => event.to_status === "DISPATCHED_TO_FACTORY");
+  const dispatchAt = dispatchEvent ? new Date(dispatchEvent.timestamp).toLocaleString() : null;
 
   const labelUrl = useMemo(() => {
     const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -388,8 +392,16 @@ export default function ItemDetailPage() {
 
         <Card className="space-y-3">
           <p className="text-xs uppercase tracking-[0.3em] text-slate">Holder</p>
-          <p className="text-lg font-semibold">{job?.current_holder_role}</p>
+          <p className="text-lg font-semibold">
+            {job?.current_holder_username
+              ? `${job.current_holder_username} (${job.current_holder_role})`
+              : job?.current_holder_role}
+          </p>
           <p className="text-sm text-slate">Last scan: {job?.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}</p>
+          <p className="text-sm text-slate">Sent to factory: {dispatchAt || "-"}</p>
+          <p className="text-sm text-slate">
+            Pending: {pendingDays === null ? "-" : `${pendingDays} day${pendingDays === 1 ? "" : "s"}`}
+          </p>
           <RoleGate roles={["Admin"]}>
             <div className="mt-4 space-y-2 border-t border-ink/10 pt-4">
               <p className="text-xs uppercase tracking-[0.3em] text-slate">Admin Override</p>
@@ -439,7 +451,11 @@ export default function ItemDetailPage() {
               <TR key={event.id}>
                 <TD>{event.from_status || "-"}</TD>
                 <TD>{event.to_status}</TD>
-                <TD>{event.scanned_by_role}</TD>
+                <TD>
+                  {event.scanned_by_username
+                    ? `${event.scanned_by_username} (${event.scanned_by_role})`
+                    : event.scanned_by_role}
+                </TD>
                 <TD>{new Date(event.timestamp).toLocaleString()}</TD>
                 <TD>{event.override_reason || event.remarks || "-"}</TD>
               </TR>

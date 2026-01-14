@@ -13,7 +13,10 @@ export function useApi() {
     async <T>(path: string, options: RequestInit = {}) => {
       const doFetch = async (token?: string) => {
         const headers = new Headers(options.headers || {});
-        headers.set("Content-Type", "application/json");
+        const isFormData = options.body instanceof FormData;
+        if (!isFormData && !headers.has("Content-Type")) {
+          headers.set("Content-Type", "application/json");
+        }
         if (token) {
           headers.set("Authorization", `Bearer ${token}`);
         }

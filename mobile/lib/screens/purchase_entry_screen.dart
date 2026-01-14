@@ -1,5 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
@@ -15,13 +20,20 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
   final _descriptionController = TextEditingController();
   final _customerController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _weightController = TextEditingController();
+  final _valueController = TextEditingController();
+  final _picker = ImagePicker();
+  final List<XFile> _photos = [];
   bool _offline = false;
+  bool _submitting = false;
 
   @override
   void dispose() {
     _descriptionController.dispose();
     _customerController.dispose();
     _phoneController.dispose();
+    _weightController.dispose();
+    _valueController.dispose();
     super.dispose();
   }
 
@@ -54,6 +66,68 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                     decoration: const InputDecoration(labelText: 'Customer Phone'),
                   ),
                   const SizedBox(height: 12),
+                  TextField(
+                    controller: _weightController,
+                    decoration: const InputDecoration(labelText: 'Approximate Weight (g)'),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _valueController,
+                    decoration: const InputDecoration(labelText: 'Purchase Value'),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 12),
+                  Text('Item Photos *', style: Theme.of(context).textTheme.labelLarge),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (int index = 0; index < _photos.length; index++)
+                        Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Image.file(
+                                File(_photos[index].path),
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Positioned(
+                              right: 4,
+                              top: 4,
+                              child: InkWell(
+                                onTap: () => setState(() => _photos.removeAt(index)),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.8),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Text('x', style: TextStyle(fontSize: 12)),
+                                ),
+                              ),
+                            )
+                          ],
+                        ),
+                      InkWell(
+                        onTap: _submitting ? null : _capturePhoto,
+                        child: Container(
+                          width: 72,
+                          height: 72,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.black12),
+                          ),
+                          child: const Icon(Icons.camera_alt),
+                        ),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 12),
                   SwitchListTile(
                     value: _offline,
                     contentPadding: EdgeInsets.zero,
@@ -64,17 +138,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () async {
-                        final repo = ref.read(jobRepositoryProvider);
-                        await repo.createJob({
-                          'item_description': _descriptionController.text.trim(),
-                          'customer_name': _customerController.text.trim(),
-                          'customer_phone': _phoneController.text.trim(),
-                        }, offline: _offline);
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Job created')));
-                        Navigator.pop(context);
-                      },
+                      onPressed: _submitting ? null : () => _submit(context),
                       child: const Text('Create Job'),
                     ),
                   )
@@ -85,5 +149,100 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _capturePhoto() async {
+    final photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    if (photo == null) return;
+    setState(() => _photos.add(photo));
+  }
+
+  Future<void> _submit(BuildContext context) async {
+    if (_offline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Offline mode is not supported for purchase entry.')),
+      );
+      return;
+    }
+    if (_descriptionController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Item description is required.')),
+      );
+      return;
+    }
+    if (_photos.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('At least one photo is required.')),
+      );
+      return;
+    }
+    setState(() => _submitting = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      final uploads = <Map<String, dynamic>>[];
+      for (final photo in _photos) {
+        final uploaded = await api.uploadImage(File(photo.path));
+        uploads.add(uploaded);
+      }
+      final repo = ref.read(jobRepositoryProvider);
+      final weight = double.tryParse(_weightController.text.trim());
+      final value = double.tryParse(_valueController.text.trim());
+      final job = await repo.createJob({
+        'item_description': _descriptionController.text.trim(),
+        'customer_name': _customerController.text.trim(),
+        'customer_phone': _phoneController.text.trim(),
+        'approximate_weight': weight,
+        'purchase_value': value,
+        'photos': uploads,
+      });
+      if (!mounted) return;
+      _descriptionController.clear();
+      _customerController.clear();
+      _phoneController.clear();
+      _weightController.clear();
+      _valueController.clear();
+      setState(() => _photos.clear());
+      final jobId = job['job_id'] as String;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Job Created'),
+            content: Text('Job ID: $jobId'),
+            actions: [
+              TextButton(
+                onPressed: () => _shareLabel(jobId),
+                child: const Text('Share Label'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Done'),
+              ),
+            ],
+          );
+        },
+      );
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create job: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _submitting = false);
+      }
+    }
+  }
+
+  Future<void> _shareLabel(String jobId) async {
+    final api = ref.read(apiClientProvider);
+    final bytes = await api.downloadLabel(jobId);
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/label-$jobId.pdf');
+    await file.writeAsBytes(bytes, flush: true);
+    await Share.shareXFiles([XFile(file.path)], text: 'Label $jobId');
   }
 }

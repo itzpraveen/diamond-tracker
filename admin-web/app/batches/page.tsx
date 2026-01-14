@@ -33,9 +33,13 @@ function BatchDetailModal({
 
   const addItemMutation = useMutation({
     mutationFn: () =>
-      request(`/batches/${batchId}/items`, {
+      request(`/jobs/${jobIdToAdd.trim()}/scan`, {
         method: "POST",
-        body: JSON.stringify({ job_id: jobIdToAdd })
+        body: JSON.stringify({
+          to_status: "DISPATCHED_TO_FACTORY",
+          batch_id: batchId,
+          remarks: "Dispatch scan"
+        })
       }),
     onSuccess: () => {
       setJobIdToAdd("");
@@ -120,22 +124,22 @@ function BatchDetailModal({
           {canAddItems && (
             <div className="mb-4 rounded-2xl border border-ink/10 bg-white/80 p-4">
               <p className="mb-2 text-xs uppercase tracking-[0.3em] text-slate">Add Item</p>
-              <p className="text-sm font-semibold">Add Item to Batch</p>
+              <p className="text-sm font-semibold">Scan & Dispatch Item</p>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Enter Job ID (e.g., DJ-2026-000001)"
+                  placeholder="Scan Job ID (e.g., DJ-2026-000001)"
                   value={jobIdToAdd}
                   onChange={(e) => setJobIdToAdd(e.target.value)}
                 />
                 <Button
                   onClick={() => addItemMutation.mutate()}
-                  disabled={!jobIdToAdd || addItemMutation.isPending}
+                  disabled={!jobIdToAdd.trim() || addItemMutation.isPending}
                 >
-                  {addItemMutation.isPending ? "Adding..." : "Add"}
+                  {addItemMutation.isPending ? "Scanning..." : "Scan"}
                 </Button>
               </div>
               {addError && <p className="mt-2 text-sm text-red-500">{addError}</p>}
-              <p className="mt-2 text-xs text-slate-500">Only items with status PACKED_READY can be added</p>
+              <p className="mt-2 text-xs text-slate-500">Only items with status PACKED_READY can be dispatched</p>
             </div>
           )}
         </RoleGate>
@@ -171,7 +175,7 @@ function BatchDetailModal({
                 {dispatchMutation.isPending ? "Dispatching..." : "Dispatch Batch"}
               </Button>
               <p className="mt-2 text-xs text-slate-500">
-                This will transition all items to DISPATCHED_TO_FACTORY status
+                Confirm dispatch date after all items are scanned
               </p>
             </div>
           )}

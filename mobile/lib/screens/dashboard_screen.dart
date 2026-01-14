@@ -79,7 +79,7 @@ class DashboardScreen extends ConsumerWidget {
             subtitle: 'Scan label to move to next status',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const ScanScreen()),
+              MaterialPageRoute(builder: (_) => role == Role.dispatch ? const DispatchScreen() : const ScanScreen()),
             ),
           ),
           const SizedBox(height: 12),

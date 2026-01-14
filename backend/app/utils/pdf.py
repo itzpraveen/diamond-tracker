@@ -15,16 +15,26 @@ def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
     c = canvas.Canvas(buffer, pagesize=A7)
 
     c.setFont("Helvetica-Bold", 11)
-    c.drawString(10 * mm, 70 * mm, "Majestic Tracking")
-
-    c.setFont("Helvetica", 9)
-    c.drawString(10 * mm, 62 * mm, f"Job: {job.job_id}")
-    c.drawString(10 * mm, 57 * mm, f"Branch: {branch_name}")
-    c.drawString(10 * mm, 52 * mm, f"Created: {job.created_at.date().isoformat()}")
+    c.drawString(10 * mm, 72 * mm, "Majestic Tracking")
 
     c.setFont("Helvetica", 8)
+    c.drawString(10 * mm, 66 * mm, f"Job: {job.job_id}")
+    c.drawString(10 * mm, 62 * mm, f"Branch: {branch_name}")
+    c.drawString(10 * mm, 58 * mm, f"Created: {job.created_at.date().isoformat()}")
+
+    customer = (job.customer_name or "").strip()
+    if customer:
+        c.drawString(10 * mm, 54 * mm, f"Customer: {customer[:22]}")
+    phone = (job.customer_phone or "").strip()
+    if phone:
+        c.drawString(10 * mm, 50 * mm, f"Phone: {phone[:20]}")
+
+    weight = f"{job.approximate_weight}g" if job.approximate_weight else "-"
+    value = f"{job.purchase_value}" if job.purchase_value else "-"
+    c.drawString(10 * mm, 46 * mm, f"Weight: {weight}  Value: {value}")
+
     description = (job.item_description or "").strip()
-    c.drawString(10 * mm, 46 * mm, f"Item: {description[:40]}")
+    c.drawString(10 * mm, 42 * mm, f"Item: {description[:36]}")
 
     qr = qrcode.QRCode(box_size=2, border=1)
     qr.add_data(job.job_id)

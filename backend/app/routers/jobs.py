@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import BatchItem, Branch, ItemJob, JobEditAudit, Role, Status, StatusEvent
+from app.models import Batch, BatchItem, BatchStatus, Branch, ItemJob, JobEditAudit, Role, Status, StatusEvent, User
 from app.schemas import JobCreate, JobDetail, JobOut, JobScanRequest, JobUpdate, StatusEventOut
 from app.utils.pdf import generate_label_pdf
 from app.utils.transitions import (
@@ -71,6 +71,15 @@ def _get_previous_status_before_hold(db: Session, job: ItemJob) -> Optional[Stat
     if not hold_event:
         return None
     return hold_event.from_status
+
+
+def _get_batch_by_uuid(db: Session, batch_id: uuid.UUID) -> Batch:
+    batch = db.query(Batch).filter(Batch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.status == BatchStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Batch is closed")
+    return batch
 
 
 @router.post("", response_model=JobOut)
@@ -144,9 +153,21 @@ def list_jobs(
 def get_job(job_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY))):
     job = _get_job_by_code(db, job_id)
     events = db.query(StatusEvent).filter(StatusEvent.job_id == job.id).order_by(StatusEvent.timestamp).all()
+    user_ids = {event.scanned_by_user_id for event in events}
+    if job.current_holder_user_id:
+        user_ids.add(job.current_holder_user_id)
+    users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+    user_map = {user.id: user.username for user in users}
     return JobDetail(
         **JobOut.model_validate(job).model_dump(),
-        status_events=[StatusEventOut.model_validate(event) for event in events],
+        current_holder_username=user_map.get(job.current_holder_user_id),
+        status_events=[
+            StatusEventOut(
+                **StatusEventOut.model_validate(event).model_dump(),
+                scanned_by_username=user_map.get(event.scanned_by_user_id),
+            )
+            for event in events
+        ],
     )
 
 
@@ -194,6 +215,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
     job = _get_job_by_code(db, job_id)
     current_status = job.current_status
     target_status = payload.to_status
+    batch = None
 
     if current_status == Status.ON_HOLD:
         previous_status = _get_previous_status_before_hold(db, job)
@@ -220,10 +242,37 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         if not role_can_transition(user.role, target_status):
             raise HTTPException(status_code=403, detail="Role cannot perform this transition")
 
+    if target_status == Status.DISPATCHED_TO_FACTORY and not override_needed:
+        if not payload.batch_id:
+            raise HTTPException(status_code=400, detail="Batch id required for dispatch")
+        batch = _get_batch_by_uuid(db, payload.batch_id)
+        existing_item = (
+            db.query(BatchItem)
+            .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
+            .first()
+        )
+        if existing_item:
+            raise HTTPException(status_code=400, detail="Item already in batch")
+        db.add(BatchItem(batch_id=batch.id, job_id=job.id))
+        batch.item_count += 1
+    elif target_status == Status.DISPATCHED_TO_FACTORY and payload.batch_id:
+        batch = _get_batch_by_uuid(db, payload.batch_id)
+        existing_item = (
+            db.query(BatchItem)
+            .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
+            .first()
+        )
+        if not existing_item:
+            db.add(BatchItem(batch_id=batch.id, job_id=job.id))
+            batch.item_count += 1
+
     job.current_status = target_status
     job.current_holder_role = STATUS_HOLDER_ROLE[target_status]
     job.current_holder_user_id = user.id
     job.last_scan_at = datetime.now(timezone.utc)
+    remarks = payload.remarks
+    if target_status == Status.DISPATCHED_TO_FACTORY and batch:
+        remarks = remarks or f"Batch dispatch {batch.batch_code}"
 
     event = StatusEvent(
         job_id=job.id,
@@ -234,7 +283,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         timestamp=datetime.now(timezone.utc),
         location=payload.location,
         device_id=payload.device_id,
-        remarks=payload.remarks,
+        remarks=remarks,
         incident_flag=payload.incident_flag,
         override_reason=payload.override_reason,
     )
