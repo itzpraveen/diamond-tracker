@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     local_storage_path: str = "./storage"
 
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,https://diamond-admin-web.onrender.com"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
