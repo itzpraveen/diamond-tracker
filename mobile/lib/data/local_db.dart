@@ -55,6 +55,55 @@ class AppDatabase extends _$AppDatabase {
 
   Future<List<LocalJob>> getJobs() => select(localJobs).get();
 
+  Future<LocalJob?> getJobById(String jobId) {
+    return (select(localJobs)..where((tbl) => tbl.jobId.equals(jobId))).getSingleOrNull();
+  }
+
+  Future<List<LocalJob>> getJobsByPrefix(String prefix) {
+    return (select(localJobs)..where((tbl) => tbl.jobId.like('$prefix%'))).get();
+  }
+
+  Future<void> deleteJobById(String jobId) async {
+    await (delete(localJobs)..where((tbl) => tbl.jobId.equals(jobId))).go();
+  }
+
+  Future<int> offlineJobCount() async {
+    final countExp = localJobs.id.count();
+    final query = selectOnly(localJobs)..addColumns([countExp]);
+    query.where(localJobs.jobId.like('offline-%'));
+    final row = await query.getSingle();
+    return row.read(countExp) ?? 0;
+  }
+
+  Future<void> addPhoto(String jobId, String path) async {
+    await into(localPhotos).insert(
+      LocalPhotosCompanion(
+        jobId: Value(jobId),
+        path: Value(path),
+      ),
+    );
+  }
+
+  Future<List<LocalPhoto>> getPhotos(String jobId, {bool? uploaded}) {
+    final query = select(localPhotos)..where((tbl) => tbl.jobId.equals(jobId));
+    if (uploaded != null) {
+      query.where((tbl) => tbl.uploaded.equals(uploaded));
+    }
+    return query.get();
+  }
+
+  Future<void> markPhotoUploaded(int id) async {
+    await (update(localPhotos)..where((tbl) => tbl.id.equals(id))).write(
+      const LocalPhotosCompanion(uploaded: Value(true)),
+    );
+  }
+
+  Future<void> updatePhotoJobId(String fromJobId, String toJobId) async {
+    await (update(localPhotos)..where((tbl) => tbl.jobId.equals(fromJobId))).write(
+      LocalPhotosCompanion(jobId: Value(toJobId)),
+    );
+  }
+
   Future<void> enqueueScan(String jobId, String toStatus, Map<String, dynamic> payload) async {
     await into(scanQueue).insert(
       ScanQueueCompanion(
@@ -73,6 +122,20 @@ class AppDatabase extends _$AppDatabase {
   Future<void> markQueueSynced(int id) async {
     await (update(scanQueue)..where((tbl) => tbl.id.equals(id))).write(
       const ScanQueueCompanion(synced: Value(true)),
+    );
+  }
+
+  Future<int> pendingQueueCount() async {
+    final countExp = scanQueue.id.count();
+    final query = selectOnly(scanQueue)..addColumns([countExp]);
+    query.where(scanQueue.synced.equals(false));
+    final row = await query.getSingle();
+    return row.read(countExp) ?? 0;
+  }
+
+  Future<void> updateScanQueueJobId(String fromJobId, String toJobId) async {
+    await (update(scanQueue)..where((tbl) => tbl.jobId.equals(fromJobId))).write(
+      ScanQueueCompanion(jobId: Value(toJobId)),
     );
   }
 

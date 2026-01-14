@@ -11,12 +11,26 @@ class JobRepository {
 
   Future<Map<String, dynamic>> createJob(Map<String, dynamic> payload, {bool offline = false}) async {
     if (offline) {
-      await db.upsertJob(payload['job_id'] ?? 'offline', payload);
-      return payload;
+      final jobId = (payload['job_id'] as String?) ?? 'offline-${DateTime.now().millisecondsSinceEpoch}';
+      final data = {
+        ...payload,
+        'job_id': jobId,
+        'current_status': payload['current_status'] ?? 'OFFLINE_PENDING',
+        'created_at': payload['created_at'] ?? DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      await db.upsertJob(jobId, data);
+      return data;
     }
     final job = await api.createJob(payload);
     await db.upsertJob(job['job_id'] as String, job);
     return job;
+  }
+
+  Future<Map<String, dynamic>?> getLocalJob(String jobId) async {
+    final entry = await db.getJobById(jobId);
+    if (entry == null) return null;
+    return jsonDecode(entry.data) as Map<String, dynamic>;
   }
 
   Future<void> queueScan(String jobId, Map<String, dynamic> payload) async {

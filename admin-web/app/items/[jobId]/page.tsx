@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { RoleGate } from "@/lib/auth";
+import { RoleGate, useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/useApi";
 
 const statuses = [
@@ -275,15 +275,18 @@ function CreateIncidentModal({
 export default function ItemDetailPage() {
   const params = useParams<{ jobId: string }>();
   const jobId = params?.jobId as string;
-  const { request } = useApi();
+  const { accessToken, isLoading } = useAuth();
+  const { request, requestBlob } = useApi();
   const [overrideStatus, setOverrideStatus] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [showEditModal, setShowEditModal] = useState(false);
   const [showIncidentModal, setShowIncidentModal] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
-    queryFn: () => request<any>(`/jobs/${jobId}`)
+    queryFn: () => request<any>(`/jobs/${jobId}`),
+    enabled: Boolean(jobId && accessToken && !isLoading)
   });
 
   const overrideMutation = useMutation({
@@ -310,15 +313,44 @@ export default function ItemDetailPage() {
   const dispatchEvent = job?.status_events?.find((event: any) => event.to_status === "DISPATCHED_TO_FACTORY");
   const dispatchAt = dispatchEvent ? new Date(dispatchEvent.timestamp).toLocaleString() : null;
 
-  const labelUrl = useMemo(() => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-    return `${base}/jobs/${jobId}/label.pdf`;
-  }, [jobId]);
+  const handleDownloadLabel = async () => {
+    setDownloadError("");
+    try {
+      const blob = await requestBlob(`/jobs/${jobId}/label.pdf`);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `label-${jobId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Unable to download label");
+    }
+  };
 
   return (
     <AppShell>
       <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
         <Card className="space-y-6">
+          {(jobQuery.isLoading || jobQuery.isError) && (
+            <div className="rounded-2xl border border-ink/10 bg-white/80 p-3 text-sm text-slate-700">
+              {jobQuery.isLoading && "Loading job details..."}
+              {jobQuery.isError && (
+                <div className="flex flex-col gap-2 text-red-600">
+                  <span>{jobQuery.error instanceof Error ? jobQuery.error.message : "Failed to load job."}</span>
+                  <button
+                    className="w-fit rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:border-red-300"
+                    type="button"
+                    onClick={() => jobQuery.refetch()}
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate">Item</p>
@@ -371,14 +403,13 @@ export default function ItemDetailPage() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            <a
+            <button
               className="inline-flex items-center justify-center rounded-xl border border-ink/10 bg-white/80 px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/30 hover:bg-white"
-              href={labelUrl}
-              target="_blank"
-              rel="noreferrer"
+              type="button"
+              onClick={handleDownloadLabel}
             >
               Download Label
-            </a>
+            </button>
             <Button variant="outline" onClick={() => setShowIncidentModal(true)}>
               Create Incident
             </Button>
@@ -388,6 +419,7 @@ export default function ItemDetailPage() {
               </Button>
             </RoleGate>
           </div>
+          {downloadError && <p className="text-sm text-red-600">{downloadError}</p>}
         </Card>
 
         <Card className="space-y-3">

@@ -71,8 +71,18 @@ class ApiClient {
     return response.data ?? <int>[];
   }
 
-  Future<List<dynamic>> listJobs({String? query}) async {
-    final response = await _dio.get('/jobs', queryParameters: query != null ? {'job_id': query} : null);
+  Future<List<dynamic>> listJobs({
+    String? query,
+    String? status,
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    final params = <String, dynamic>{};
+    if (query != null) params['job_id'] = query;
+    if (status != null) params['status'] = status;
+    if (fromDate != null) params['from_date'] = fromDate.toIso8601String();
+    if (toDate != null) params['to_date'] = toDate.toIso8601String();
+    final response = await _dio.get('/jobs', queryParameters: params.isEmpty ? null : params);
     return response.data as List<dynamic>;
   }
 

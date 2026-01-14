@@ -169,6 +169,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                             builder: (_) => ScanScreen(
                               targetStatus: 'DISPATCHED_TO_FACTORY',
                               batchId: _selectedBatchId,
+                              batchCode: selectedBatch['batch_code'] as String?,
                             ),
                           ),
                         ),

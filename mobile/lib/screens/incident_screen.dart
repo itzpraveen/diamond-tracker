@@ -5,7 +5,9 @@ import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
 
 class IncidentScreen extends ConsumerStatefulWidget {
-  const IncidentScreen({super.key});
+  const IncidentScreen({super.key, this.jobId});
+
+  final String? jobId;
 
   @override
   ConsumerState<IncidentScreen> createState() => _IncidentScreenState();
@@ -15,6 +17,14 @@ class _IncidentScreenState extends ConsumerState<IncidentScreen> {
   final _jobIdController = TextEditingController();
   final _descController = TextEditingController();
   String _type = 'StickerMismatch';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.jobId != null) {
+      _jobIdController.text = widget.jobId!;
+    }
+  }
 
   @override
   void dispose() {

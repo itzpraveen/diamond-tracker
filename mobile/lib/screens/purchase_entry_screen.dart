@@ -158,12 +158,6 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
   }
 
   Future<void> _submit(BuildContext context) async {
-    if (_offline) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Offline mode is not supported for purchase entry.')),
-      );
-      return;
-    }
     if (_descriptionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Item description is required.')),
@@ -178,15 +172,30 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     }
     setState(() => _submitting = true);
     try {
+      final repo = ref.read(jobRepositoryProvider);
+      final weight = double.tryParse(_weightController.text.trim());
+      final value = double.tryParse(_valueController.text.trim());
+      if (_offline) {
+        final jobId = await _queueOfflineJob(
+          weight: weight,
+          value: value,
+        );
+        if (!mounted) return;
+        _clearForm();
+        await _showQueuedDialog(jobId);
+        if (mounted) {
+          Navigator.pop(context);
+        }
+        return;
+      }
+
       final api = ref.read(apiClientProvider);
       final uploads = <Map<String, dynamic>>[];
       for (final photo in _photos) {
         final uploaded = await api.uploadImage(File(photo.path));
         uploads.add(uploaded);
       }
-      final repo = ref.read(jobRepositoryProvider);
-      final weight = double.tryParse(_weightController.text.trim());
-      final value = double.tryParse(_valueController.text.trim());
+
       final job = await repo.createJob({
         'item_description': _descriptionController.text.trim(),
         'customer_name': _customerController.text.trim(),
@@ -196,12 +205,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         'photos': uploads,
       });
       if (!mounted) return;
-      _descriptionController.clear();
-      _customerController.clear();
-      _phoneController.clear();
-      _weightController.clear();
-      _valueController.clear();
-      setState(() => _photos.clear());
+      _clearForm();
       final jobId = job['job_id'] as String;
       await showDialog<void>(
         context: context,
@@ -235,6 +239,82 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         setState(() => _submitting = false);
       }
     }
+  }
+
+  void _clearForm() {
+    _descriptionController.clear();
+    _customerController.clear();
+    _phoneController.clear();
+    _weightController.clear();
+    _valueController.clear();
+    setState(() => _photos.clear());
+  }
+
+  Future<String> _queueOfflineJob({double? weight, double? value}) async {
+    final repo = ref.read(jobRepositoryProvider);
+    final db = ref.read(dbProvider);
+    final payload = {
+      'item_description': _descriptionController.text.trim(),
+      'customer_name': _customerController.text.trim(),
+      'customer_phone': _phoneController.text.trim(),
+      'approximate_weight': weight,
+      'purchase_value': value,
+      'current_status': 'OFFLINE_PENDING',
+    };
+    final job = await repo.createJob(payload, offline: true);
+    final jobId = job['job_id'] as String;
+    final dir = await getApplicationDocumentsDirectory();
+    for (var index = 0; index < _photos.length; index++) {
+      final photo = _photos[index];
+      final source = File(photo.path);
+      final filename = '$jobId-${DateTime.now().millisecondsSinceEpoch}-$index.jpg';
+      final destination = File('${dir.path}/$filename');
+      await source.copy(destination.path);
+      await db.addPhoto(jobId, destination.path);
+    }
+    return jobId;
+  }
+
+  Future<void> _showQueuedDialog(String jobId) async {
+    final syncService = ref.read(syncServiceProvider);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Saved Offline'),
+          content: Text('Queued Job ID: $jobId\nSync to print the label and continue tracking.'),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  final report = await syncService.syncAll();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Sync done: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures.',
+                      ),
+                    ),
+                  );
+                } catch (error) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Sync failed: $error')),
+                  );
+                }
+              },
+              child: const Text('Sync Now'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Done'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _shareLabel(String jobId) async {
