@@ -158,16 +158,16 @@ def get_job(job_id: str, db: Session = Depends(get_db), user=Depends(require_rol
         user_ids.add(job.current_holder_user_id)
     users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
     user_map = {user.id: user.username for user in users}
+    status_events = [
+        StatusEventOut.model_validate(event).model_copy(
+            update={"scanned_by_username": user_map.get(event.scanned_by_user_id)}
+        )
+        for event in events
+    ]
     return JobDetail(
         **JobOut.model_validate(job).model_dump(),
         current_holder_username=user_map.get(job.current_holder_user_id),
-        status_events=[
-            StatusEventOut(
-                **StatusEventOut.model_validate(event).model_dump(),
-                scanned_by_username=user_map.get(event.scanned_by_user_id),
-            )
-            for event in events
-        ],
+        status_events=status_events,
     )
 
 
