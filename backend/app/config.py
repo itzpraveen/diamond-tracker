@@ -3,6 +3,8 @@ from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,https://diamond-admin-web.onrender.com"
+
 
 class Settings(BaseSettings):
     app_name: str = "Majestic Tracking"
@@ -23,13 +25,28 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     local_storage_path: str = "./storage"
 
-    cors_origins: str = "http://localhost:3000,https://diamond-admin-web.onrender.com"
+    cors_origins: str = DEFAULT_CORS_ORIGINS
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def cors_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        raw = self.cors_origins.strip()
+        if not raw:
+            raw = DEFAULT_CORS_ORIGINS
+        origins: List[str] = []
+        for origin in raw.split(","):
+            value = origin.strip()
+            if not value:
+                continue
+            if value == "*":
+                origins.append(value)
+                continue
+            value = value.rstrip("/")
+            if not value.startswith("http://") and not value.startswith("https://"):
+                value = f"https://{value}"
+            origins.append(value)
+        return origins
 
 
 @lru_cache
