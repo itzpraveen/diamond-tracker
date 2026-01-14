@@ -31,7 +31,7 @@ def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
 
     weight = f"{job.approximate_weight}g" if job.approximate_weight else "-"
     value = f"{job.purchase_value}" if job.purchase_value else "-"
-    c.drawString(10 * mm, 46 * mm, f"Weight: {weight}  Value: {value}")
+    c.drawString(10 * mm, 46 * mm, f"Weight: {weight}  Value (INR): {value}")
 
     description = (job.item_description or "").strip()
     c.drawString(10 * mm, 42 * mm, f"Item: {description[:36]}")

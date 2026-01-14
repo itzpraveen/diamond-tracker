@@ -156,7 +156,7 @@ function CreateJobModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Purchase Value</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Purchase Value (INR)</label>
               <Input
                 type="number"
                 step="0.01"

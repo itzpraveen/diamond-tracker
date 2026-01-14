@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate, useAuth } from "@/lib/auth";
+import { formatInr } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
 
 const statuses = [
@@ -131,7 +132,7 @@ function EditJobModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Purchase Value</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Purchase Value (INR)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -374,8 +375,8 @@ export default function ItemDetailPage() {
               <p className="font-medium">{job?.approximate_weight ? `${job.approximate_weight}g` : "-"}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Purchase Value</p>
-              <p className="font-medium">{job?.purchase_value ? `$${job.purchase_value}` : "-"}</p>
+              <p className="text-xs text-slate-500">Purchase Value (INR)</p>
+              <p className="font-medium">{formatInr(job?.purchase_value)}</p>
             </div>
             <div className="md:col-span-2">
               <p className="text-xs text-slate-500">Description</p>

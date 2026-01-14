@@ -74,7 +74,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _valueController,
-                    decoration: const InputDecoration(labelText: 'Purchase Value'),
+                    decoration: const InputDecoration(labelText: 'Purchase Value (INR)'),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                   const SizedBox(height: 12),
