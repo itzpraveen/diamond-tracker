@@ -31,7 +31,9 @@ class SyncService {
           'customer_phone': data['customer_phone'],
           'item_description': data['item_description'],
           'approximate_weight': _asDouble(data['approximate_weight']),
+          'diamond_cent': _asDouble(data['diamond_cent']),
           'purchase_value': _asDouble(data['purchase_value']),
+          'item_source': data['item_source'],
           'notes': data['notes'],
           'photos': uploads,
         };

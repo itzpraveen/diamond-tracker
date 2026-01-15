@@ -43,6 +43,8 @@ function EditJobModal({
     customer_name: job.customer_name || "",
     customer_phone: job.customer_phone || "",
     item_description: job.item_description || "",
+    item_source: job.item_source || "",
+    diamond_cent: job.diamond_cent?.toString() || "",
     approximate_weight: job.approximate_weight?.toString() || "",
     purchase_value: job.purchase_value?.toString() || "",
     notes: job.notes || "",
@@ -60,6 +62,8 @@ function EditJobModal({
           item_description: formData.item_description,
           approximate_weight: formData.approximate_weight ? parseFloat(formData.approximate_weight) : null,
           purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null,
+          item_source: formData.item_source || null,
+          diamond_cent: formData.diamond_cent ? parseFloat(formData.diamond_cent) : null,
           notes: formData.notes || null,
           reason: formData.reason
         })
@@ -119,6 +123,30 @@ function EditJobModal({
               value={formData.item_description}
               onChange={(e) => setFormData({ ...formData, item_description: e.target.value })}
             />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Item Source</label>
+              <select
+                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                value={formData.item_source}
+                onChange={(e) => setFormData({ ...formData, item_source: e.target.value })}
+              >
+                <option value="">Select source</option>
+                <option value="Old">Old (stock received)</option>
+                <option value="Repair">Repair (customer)</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Diamond Cent</label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Diamond cent"
+                value={formData.diamond_cent}
+                onChange={(e) => setFormData({ ...formData, diamond_cent: e.target.value })}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -369,6 +397,16 @@ export default function ItemDetailPage() {
             <div>
               <p className="text-xs text-slate-500">Phone</p>
               <p className="font-medium">{job?.customer_phone || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Source</p>
+              <p className="font-medium">{job?.item_source || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Diamond Cent</p>
+              <p className="font-medium">
+                {job?.diamond_cent === null || job?.diamond_cent === undefined ? "-" : `${job.diamond_cent}c`}
+              </p>
             </div>
             <div>
               <p className="text-xs text-slate-500">Weight</p>

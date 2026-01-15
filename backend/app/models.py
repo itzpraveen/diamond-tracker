@@ -48,6 +48,11 @@ class Status(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
+class ItemSource(str, enum.Enum):
+    OLD = "Old"
+    REPAIR = "Repair"
+
+
 class BatchStatus(str, enum.Enum):
     CREATED = "CREATED"
     DISPATCHED = "DISPATCHED"
@@ -71,6 +76,7 @@ class IncidentStatus(str, enum.Enum):
 
 ROLE_ENUM = Enum(Role, name="role", values_callable=lambda obj: [e.value for e in obj])
 STATUS_ENUM = Enum(Status, name="status", values_callable=lambda obj: [e.value for e in obj])
+ITEM_SOURCE_ENUM = Enum(ItemSource, name="item_source", values_callable=lambda obj: [e.value for e in obj])
 BATCH_STATUS_ENUM = Enum(
     BatchStatus, name="batch_status", values_callable=lambda obj: [e.value for e in obj]
 )
@@ -117,6 +123,8 @@ class ItemJob(Base):
     item_description: Mapped[str] = mapped_column(Text)
     approximate_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     purchase_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    item_source: Mapped[ItemSource | None] = mapped_column(ITEM_SOURCE_ENUM, nullable=True)
+    diamond_cent: Mapped[float | None] = mapped_column(Float, nullable=True)
     photos: Mapped[list | None] = mapped_column(JSONB, default=list)
     current_status: Mapped[Status] = mapped_column(STATUS_ENUM)
     current_holder_role: Mapped[Role] = mapped_column(ROLE_ENUM)

@@ -93,6 +93,8 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
         item_description=payload.item_description,
         approximate_weight=payload.approximate_weight,
         purchase_value=payload.purchase_value,
+        item_source=payload.item_source,
+        diamond_cent=payload.diamond_cent,
         photos=[photo.model_dump() for photo in payload.photos] if payload.photos else [],
         current_status=Status.PURCHASED,
         current_holder_role=Role.PURCHASE,
@@ -183,6 +185,8 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
         "item_description",
         "approximate_weight",
         "purchase_value",
+        "item_source",
+        "diamond_cent",
         "photos",
         "notes",
     ]:

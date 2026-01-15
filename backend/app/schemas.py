@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models import BatchStatus, IncidentStatus, IncidentType, Role, Status
+from app.models import BatchStatus, IncidentStatus, IncidentType, ItemSource, Role, Status
 
 
 class TokenResponse(BaseModel):
@@ -56,6 +56,8 @@ class JobCreate(BaseModel):
     item_description: str
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
+    item_source: ItemSource
+    diamond_cent: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     notes: Optional[str] = None
 
@@ -66,6 +68,8 @@ class JobUpdate(BaseModel):
     item_description: Optional[str] = None
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
+    item_source: Optional[ItemSource] = None
+    diamond_cent: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     notes: Optional[str] = None
     reason: str
@@ -81,6 +85,8 @@ class JobOut(BaseModel):
     item_description: str
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
+    item_source: Optional[ItemSource] = None
+    diamond_cent: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     current_status: Status
     current_holder_role: Role

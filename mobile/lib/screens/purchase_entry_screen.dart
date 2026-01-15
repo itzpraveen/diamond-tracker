@@ -21,9 +21,11 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
   final _customerController = TextEditingController();
   final _phoneController = TextEditingController();
   final _weightController = TextEditingController();
+  final _diamondCentController = TextEditingController();
   final _valueController = TextEditingController();
   final _picker = ImagePicker();
   final List<XFile> _photos = [];
+  String? _itemSource;
   bool _offline = false;
   bool _submitting = false;
 
@@ -33,6 +35,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     _customerController.dispose();
     _phoneController.dispose();
     _weightController.dispose();
+    _diamondCentController.dispose();
     _valueController.dispose();
     super.dispose();
   }
@@ -66,9 +69,26 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                     decoration: const InputDecoration(labelText: 'Customer Phone'),
                   ),
                   const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: _itemSource,
+                    decoration: const InputDecoration(labelText: 'Item Source'),
+                    hint: const Text('Select source'),
+                    items: const [
+                      DropdownMenuItem(value: 'Old', child: Text('Old (stock received)')),
+                      DropdownMenuItem(value: 'Repair', child: Text('Repair (customer)')),
+                    ],
+                    onChanged: _submitting ? null : (value) => setState(() => _itemSource = value),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
                     controller: _weightController,
                     decoration: const InputDecoration(labelText: 'Approximate Weight (g)'),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _diamondCentController,
+                    decoration: const InputDecoration(labelText: 'Diamond Cent'),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   ),
                   const SizedBox(height: 12),
@@ -170,14 +190,22 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
       );
       return;
     }
+    if (_itemSource == null || _itemSource!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select an item source.')),
+      );
+      return;
+    }
     setState(() => _submitting = true);
     try {
       final repo = ref.read(jobRepositoryProvider);
       final weight = double.tryParse(_weightController.text.trim());
+      final diamondCent = double.tryParse(_diamondCentController.text.trim());
       final value = double.tryParse(_valueController.text.trim());
       if (_offline) {
         final jobId = await _queueOfflineJob(
           weight: weight,
+          diamondCent: diamondCent,
           value: value,
         );
         if (!mounted) return;
@@ -201,7 +229,9 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         'customer_name': _customerController.text.trim(),
         'customer_phone': _phoneController.text.trim(),
         'approximate_weight': weight,
+        'diamond_cent': diamondCent,
         'purchase_value': value,
+        'item_source': _itemSource,
         'photos': uploads,
       });
       if (!mounted) return;
@@ -246,11 +276,15 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     _customerController.clear();
     _phoneController.clear();
     _weightController.clear();
+    _diamondCentController.clear();
     _valueController.clear();
-    setState(() => _photos.clear());
+    setState(() {
+      _itemSource = null;
+      _photos.clear();
+    });
   }
 
-  Future<String> _queueOfflineJob({double? weight, double? value}) async {
+  Future<String> _queueOfflineJob({double? weight, double? diamondCent, double? value}) async {
     final repo = ref.read(jobRepositoryProvider);
     final db = ref.read(dbProvider);
     final payload = {
@@ -258,7 +292,9 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
       'customer_name': _customerController.text.trim(),
       'customer_phone': _phoneController.text.trim(),
       'approximate_weight': weight,
+      'diamond_cent': diamondCent,
       'purchase_value': value,
+      'item_source': _itemSource,
       'current_status': 'OFFLINE_PENDING',
     };
     final job = await repo.createJob(payload, offline: true);
