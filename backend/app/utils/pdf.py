@@ -4,8 +4,10 @@ from typing import Iterable
 
 import httpx
 import qrcode
+from reportlab.lib import colors
 from reportlab.lib.pagesizes import A7, A4
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
@@ -21,6 +23,21 @@ def _format_number(value: float | None, suffix: str = "") -> str:
     if value is None:
         return "-"
     return f"{value:g}{suffix}"
+
+
+def _normalize_text(value: str | None) -> str:
+    text = (value or "").strip()
+    return text if text else "-"
+
+
+def _trim_text(text: str, max_width: float, font_name: str, font_size: int) -> str:
+    if pdfmetrics.stringWidth(text, font_name, font_size) <= max_width:
+        return text
+    suffix = "..."
+    trimmed = text
+    while trimmed and pdfmetrics.stringWidth(f"{trimmed}{suffix}", font_name, font_size) > max_width:
+        trimmed = trimmed[:-1]
+    return f"{trimmed}{suffix}" if trimmed else suffix
 
 
 def _load_logo_image() -> ImageReader | None:
@@ -73,57 +90,91 @@ def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
     c = canvas.Canvas(buffer, pagesize=A7)
 
     page_width, page_height = A7
-    left_margin = 8 * mm
-    right_margin = 8 * mm
+    left_margin = 6 * mm
+    right_margin = 6 * mm
     top_margin = 6 * mm
-    line_gap = 4 * mm
+    header_height = 16 * mm
+    header_y = page_height - top_margin - header_height
+
+    c.setFillColor(colors.HexColor("#f3efe7"))
+    c.rect(0, header_y, page_width, header_height, stroke=0, fill=1)
+    c.setFillColor(colors.black)
 
     logo = _load_logo_image()
-    header_text = "Majestic Tracking"
-    cursor_y = page_height - top_margin
+    logo_size = 12 * mm
+    logo_x = left_margin
+    logo_y = header_y + (header_height - logo_size) / 2
     if logo:
-        logo_box_w = 18 * mm
-        logo_box_h = 12 * mm
-        logo_x = left_margin
-        logo_y = cursor_y - logo_box_h
-        _draw_image(c, logo, logo_x, logo_y, logo_box_w, logo_box_h)
-        c.setFont("Helvetica-Bold", 10)
-        c.drawString(logo_x + logo_box_w + 3 * mm, logo_y + logo_box_h - 4 * mm, header_text)
-        cursor_y = logo_y - 2 * mm
-    else:
-        c.setFont("Helvetica-Bold", 11)
-        c.drawString(left_margin, cursor_y - 8 * mm, header_text)
-        cursor_y -= 12 * mm
-
+        _draw_image(c, logo, logo_x, logo_y, logo_size, logo_size)
+    title_x = logo_x + logo_size + 3 * mm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(title_x, header_y + header_height - 6 * mm, "Majestic Tracking")
     c.setFont("Helvetica", 8)
+    c.setFillColor(colors.HexColor("#4b5563"))
+    c.drawString(title_x, header_y + header_height - 11 * mm, f"Job {job.job_id}")
+    c.setFillColor(colors.black)
+
     source = job.item_source.value if job.item_source else "-"
-    lines = [
-        f"Job: {job.job_id}",
-        f"Branch: {branch_name}",
-        f"Created: {job.created_at.date().isoformat()}",
-        f"Source: {source}",
-    ]
-
-    customer = (job.customer_name or "").strip()
-    if customer:
-        lines.append(f"Customer: {customer[:22]}")
-    phone = (job.customer_phone or "").strip()
-    if phone:
-        lines.append(f"Phone: {phone[:20]}")
-
     weight = _format_number(job.approximate_weight, "g")
     value = _format_number(job.purchase_value)
-    lines.append(f"Weight: {weight}  Value (INR): {value}")
     diamond = _format_number(job.diamond_cent, "c")
-    lines.append(f"Diamond Cent: {diamond}")
+    customer = _normalize_text(job.customer_name)
+    phone = _normalize_text(job.customer_phone)
+    description = _normalize_text(job.item_description)
 
-    description = (job.item_description or "").strip()
-    lines.append(f"Item: {description[:36]}")
+    left_fields = [
+        ("Branch", _normalize_text(branch_name)),
+        ("Source", source),
+        ("Customer", customer),
+        ("Phone", phone),
+        ("Item", description),
+    ]
+    right_fields = [
+        ("Created", job.created_at.date().isoformat()),
+        ("Weight", weight),
+        ("Value (INR)", value),
+        ("Diamond Cent", diamond),
+    ]
 
-    line_y = cursor_y
-    for line in lines:
-        c.drawString(left_margin, line_y, line)
-        line_y -= line_gap
+    content_width = page_width - left_margin - right_margin
+    col_gap = 4 * mm
+    col_width = (content_width - col_gap) / 2
+    left_x = left_margin
+    right_x = left_margin + col_width + col_gap
+
+    bottom_area_top = left_margin + 34 * mm
+    info_top = header_y - 3 * mm
+    max_rows = max(len(left_fields), len(right_fields))
+    info_height = max(info_top - bottom_area_top, 24 * mm)
+    row_height = min(8 * mm, info_height / max_rows)
+    value_offset = row_height * 0.45
+
+    def draw_field(label: str, value: str, x: float, y: float) -> None:
+        label_font = "Helvetica"
+        value_font = "Helvetica-Bold"
+        label_size = 6
+        value_size = 8
+        c.setFillColor(colors.HexColor("#6b7280"))
+        c.setFont(label_font, label_size)
+        c.drawString(x, y, label.upper())
+        c.setFillColor(colors.black)
+        c.setFont(value_font, value_size)
+        fitted = _trim_text(value, col_width, value_font, value_size)
+        c.drawString(x, y - value_offset, fitted)
+
+    row_y = info_top
+    for index in range(max_rows):
+        if index < len(left_fields):
+            label, value = left_fields[index]
+            draw_field(label, value, left_x, row_y)
+        if index < len(right_fields):
+            label, value = right_fields[index]
+            draw_field(label, value, right_x, row_y)
+        row_y -= row_height
+
+    c.setStrokeColor(colors.HexColor("#e5e7eb"))
+    c.setLineWidth(0.6)
+    c.line(left_margin, bottom_area_top, page_width - right_margin, bottom_area_top)
 
     photos = job.photos or []
     photo_reader = None
@@ -140,16 +191,33 @@ def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
     img.save(qr_buffer, format="PNG")
     qr_buffer.seek(0)
 
-    qr_size = 30 * mm
+    qr_size = 26 * mm
     qr_x = left_margin
-    qr_y = 8 * mm
+    qr_y = left_margin
+    photo_box = 26 * mm
+    photo_x = page_width - right_margin - photo_box
+    photo_y = left_margin
+
+    c.setFont("Helvetica", 6)
+    c.setFillColor(colors.HexColor("#6b7280"))
+    c.drawString(qr_x, bottom_area_top - 5 * mm, "SCAN")
+    c.drawString(photo_x, bottom_area_top - 5 * mm, "PHOTO")
+    c.setFillColor(colors.black)
+
+    c.setStrokeColor(colors.HexColor("#d1d5db"))
+    c.setLineWidth(0.5)
+    c.roundRect(qr_x - 1 * mm, qr_y - 1 * mm, qr_size + 2 * mm, qr_size + 2 * mm, 2 * mm, stroke=1, fill=0)
+    c.roundRect(photo_x - 1 * mm, photo_y - 1 * mm, photo_box + 2 * mm, photo_box + 2 * mm, 2 * mm, stroke=1, fill=0)
+
     _draw_image(c, ImageReader(qr_buffer), qr_x, qr_y, qr_size, qr_size)
 
     if photo_reader:
-        photo_box = 24 * mm
-        photo_x = page_width - right_margin - photo_box
-        photo_y = 8 * mm
         _draw_image(c, photo_reader, photo_x, photo_y, photo_box, photo_box)
+    else:
+        c.setFont("Helvetica", 6)
+        c.setFillColor(colors.HexColor("#9ca3af"))
+        c.drawCentredString(photo_x + photo_box / 2, photo_y + photo_box / 2, "No photo")
+        c.setFillColor(colors.black)
     c.showPage()
     c.save()
     return buffer.getvalue()
