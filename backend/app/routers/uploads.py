@@ -12,8 +12,8 @@ storage = StorageClient()
 
 @router.post("/image", response_model=UploadResponse)
 def upload_image(
-    file: UploadFile = File(...),
     request: Request,
+    file: UploadFile = File(...),
     user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY)),
 ):
     content = file.file.read()
