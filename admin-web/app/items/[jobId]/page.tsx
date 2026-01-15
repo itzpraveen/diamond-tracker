@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -28,6 +28,15 @@ const statuses = [
   "ON_HOLD",
   "CANCELLED"
 ];
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+const resolvePhotoUrl = (url: string) => {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${API_BASE_URL}${url}`;
+  return url;
+};
 
 function EditJobModal({
   job,
@@ -336,7 +345,15 @@ export default function ItemDetailPage() {
   });
 
   const job = jobQuery.data;
-  const photos = job?.photos || [];
+  const photos = useMemo(() => {
+    if (!job?.photos) return [];
+    return job.photos
+      .map((photo: any) => ({
+        ...photo,
+        resolvedUrl: resolvePhotoUrl(photo.thumb_url || photo.url || "")
+      }))
+      .filter((photo: any) => photo.resolvedUrl);
+  }, [job?.photos]);
   const pendingSince = job?.last_scan_at || job?.created_at;
   const pendingDays = pendingSince ? Math.floor((Date.now() - new Date(pendingSince).getTime()) / 86400000) : null;
   const dispatchEvent = job?.status_events?.find((event: any) => event.to_status === "DISPATCHED_TO_FACTORY");
@@ -433,7 +450,7 @@ export default function ItemDetailPage() {
               {photos.map((photo: any) => (
                 <img
                   key={photo.key}
-                  src={photo.url}
+                  src={photo.resolvedUrl}
                   alt="Item photo"
                   className="h-32 w-full rounded-2xl object-cover shadow-sm"
                 />
