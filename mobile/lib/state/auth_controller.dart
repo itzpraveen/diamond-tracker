@@ -8,17 +8,24 @@ import 'package:diamond_tracker_mobile/models/enums.dart';
 import 'package:diamond_tracker_mobile/state/providers.dart';
 
 class AuthState {
-  const AuthState({required this.isAuthenticated, this.role, this.isLoading = false});
+  const AuthState({
+    required this.isAuthenticated,
+    this.role,
+    this.isLoading = false,
+    this.error,
+  });
 
   final bool isAuthenticated;
   final Role? role;
   final bool isLoading;
+  final String? error;
 
-  AuthState copyWith({bool? isAuthenticated, Role? role, bool? isLoading}) {
+  AuthState copyWith({bool? isAuthenticated, Role? role, bool? isLoading, String? error}) {
     return AuthState(
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       role: role ?? this.role,
       isLoading: isLoading ?? this.isLoading,
+      error: error ?? this.error,
     );
   }
 }
@@ -39,10 +46,14 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> login(String username, String password) async {
-    state = state.copyWith(isLoading: true);
-    await _api.login(username, password);
-    final token = await _storage.read(key: 'access_token');
-    state = AuthState(isAuthenticated: true, role: _roleFromToken(token ?? ''));
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      await _api.login(username, password);
+      final token = await _storage.read(key: 'access_token');
+      state = AuthState(isAuthenticated: true, role: _roleFromToken(token ?? ''));
+    } catch (error) {
+      state = AuthState(isAuthenticated: false, error: error.toString());
+    }
   }
 
   Future<void> logout() async {

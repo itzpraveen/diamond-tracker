@@ -1,13 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
+import 'package:diamond_tracker_mobile/ui/majestic_theme.dart';
+import 'package:diamond_tracker_mobile/widgets/form_fields.dart';
+import 'package:diamond_tracker_mobile/widgets/loading_button.dart';
+import 'package:diamond_tracker_mobile/widgets/photo_picker.dart';
 
 class PurchaseEntryScreen extends ConsumerStatefulWidget {
   const PurchaseEntryScreen({super.key});
@@ -17,13 +21,13 @@ class PurchaseEntryScreen extends ConsumerStatefulWidget {
 }
 
 class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _descriptionController = TextEditingController();
   final _customerController = TextEditingController();
   final _phoneController = TextEditingController();
   final _weightController = TextEditingController();
   final _diamondCentController = TextEditingController();
   final _valueController = TextEditingController();
-  final _picker = ImagePicker();
   final List<XFile> _photos = [];
   String? _itemSource;
   bool _offline = false;
@@ -42,156 +46,192 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return MajesticScaffold(
       title: 'Purchase Entry',
-      child: ListView(
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('New Item Intake', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _descriptionController,
-                    decoration: const InputDecoration(labelText: 'Item Description'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _customerController,
-                    decoration: const InputDecoration(labelText: 'Customer Name'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _phoneController,
-                    decoration: const InputDecoration(labelText: 'Customer Phone'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: _itemSource,
-                    decoration: const InputDecoration(labelText: 'Item Source'),
-                    hint: const Text('Select source'),
-                    items: const [
-                      DropdownMenuItem(value: 'Old', child: Text('Old (stock received)')),
-                      DropdownMenuItem(value: 'Repair', child: Text('Repair (customer)')),
-                    ],
-                    onChanged: _submitting ? null : (value) => setState(() => _itemSource = value),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _weightController,
-                    decoration: const InputDecoration(labelText: 'Approximate Weight (g)'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _diamondCentController,
-                    decoration: const InputDecoration(labelText: 'Diamond Cent'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _valueController,
-                    decoration: const InputDecoration(labelText: 'Purchase Value (INR)'),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  ),
-                  const SizedBox(height: 12),
-                  Text('Item Photos *', style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (int index = 0; index < _photos.length; index++)
-                        Stack(
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: Image.file(
-                                File(_photos[index].path),
-                                width: 72,
-                                height: 72,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            Positioned(
-                              right: 4,
-                              top: 4,
-                              child: InkWell(
-                                onTap: () => setState(() => _photos.removeAt(index)),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.8),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Text('x', style: TextStyle(fontSize: 12)),
-                                ),
-                              ),
-                            )
-                          ],
-                        ),
-                      InkWell(
-                        onTap: _submitting ? null : _capturePhoto,
-                        child: Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.black12),
-                          ),
-                          child: const Icon(Icons.camera_alt),
-                        ),
-                      )
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    value: _offline,
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Offline Mode'),
-                    onChanged: (value) => setState(() => _offline = value),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _submitting ? null : () => _submit(context),
-                      child: const Text('Create Job'),
+      padding: EdgeInsets.zero,
+      child: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _HeaderCard(isDark: isDark),
+            const SizedBox(height: 24),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: FormSection(
+                  title: 'Item Details',
+                  subtitle: 'Capture item info and source',
+                  children: [
+                    MajesticTextField(
+                      controller: _descriptionController,
+                      label: 'Item Description',
+                      hint: 'e.g. diamond ring',
+                      prefixIcon: Icons.diamond_outlined,
+                      enabled: !_submitting,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Item description is required';
+                        }
+                        return null;
+                      },
                     ),
-                  )
-                ],
+                    MajesticDropdown<String>(
+                      label: 'Item Source',
+                      value: _itemSource,
+                      hint: 'Select source',
+                      items: const [
+                        DropdownMenuItem(value: 'Old', child: Text('Old (stock received)')),
+                        DropdownMenuItem(value: 'Repair', child: Text('Repair (customer)')),
+                      ],
+                      enabled: !_submitting,
+                      onChanged: (value) => setState(() => _itemSource = value),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Select an item source';
+                        }
+                        return null;
+                      },
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: MajesticTextField(
+                            controller: _weightController,
+                            label: 'Weight (g)',
+                            prefixIcon: Icons.scale_outlined,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                            ],
+                            enabled: !_submitting,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: MajesticTextField(
+                            controller: _diamondCentController,
+                            label: 'Diamond Cent',
+                            prefixIcon: Icons.auto_awesome,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                            ],
+                            enabled: !_submitting,
+                          ),
+                        ),
+                      ],
+                    ),
+                    MajesticTextField(
+                      controller: _valueController,
+                      label: 'Purchase Value (INR)',
+                      prefixIcon: Icons.currency_rupee,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      enabled: !_submitting,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: FormSection(
+                  title: 'Customer',
+                  subtitle: 'Optional for walk-in customers',
+                  children: [
+                    MajesticTextField(
+                      controller: _customerController,
+                      label: 'Customer Name',
+                      prefixIcon: Icons.person_outline,
+                      enabled: !_submitting,
+                    ),
+                    MajesticTextField(
+                      controller: _phoneController,
+                      label: 'Customer Phone',
+                      prefixIcon: Icons.phone_outlined,
+                      keyboardType: TextInputType.phone,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      enabled: !_submitting,
+                      maxLength: 10,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: FormSection(
+                  title: 'Item Photos',
+                  subtitle: 'Capture at least one clear photo',
+                  children: [
+                    PhotoPicker(
+                      photos: _photos,
+                      onPhotosChanged: (photos) => setState(() {
+                        _photos
+                          ..clear()
+                          ..addAll(photos);
+                      }),
+                      required: true,
+                      enabled: !_submitting,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: FormSection(
+                  title: 'Options',
+                  children: [
+                    MajesticSwitch(
+                      title: 'Offline Mode',
+                      subtitle: _offline ? 'Will sync when online' : 'Upload immediately',
+                      icon: _offline ? Icons.cloud_off : Icons.cloud_done,
+                      value: _offline,
+                      onChanged: _submitting ? null : (value) => setState(() => _offline = value),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            LoadingButton(
+              onPressed: _submitting ? null : () => _submit(context),
+              label: 'Create Job',
+              icon: Icons.check_circle_outline,
+              isLoading: _submitting,
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _capturePhoto() async {
-    final photo = await _picker.pickImage(source: ImageSource.camera, imageQuality: 85);
-    if (photo == null) return;
-    setState(() => _photos.add(photo));
-  }
-
   Future<void> _submit(BuildContext context) async {
-    if (_descriptionController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Item description is required.')),
-      );
-      return;
-    }
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    FocusScope.of(context).unfocus();
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     if (_photos.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('At least one photo is required.')),
       );
       return;
     }
     if (_itemSource == null || _itemSource!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Select an item source.')),
       );
       return;
@@ -208,12 +248,11 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
           diamondCent: diamondCent,
           value: value,
         );
-        if (!mounted) return;
+        if (!context.mounted) return;
         _clearForm();
         await _showQueuedDialog(jobId);
-        if (mounted) {
-          Navigator.pop(context);
-        }
+        if (!context.mounted) return;
+        navigator.pop();
         return;
       }
 
@@ -234,7 +273,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         'item_source': _itemSource,
         'photos': uploads,
       });
-      if (!mounted) return;
+      if (!context.mounted) return;
       _clearForm();
       final jobId = job['job_id'] as String;
       await showDialog<void>(
@@ -256,12 +295,11 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
           );
         },
       );
-      if (mounted) {
-        Navigator.pop(context);
-      }
+      if (!context.mounted) return;
+      navigator.pop();
     } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!context.mounted) return;
+      messenger.showSnackBar(
         SnackBar(content: Text('Failed to create job: $error')),
       );
     } finally {
@@ -272,6 +310,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
   }
 
   void _clearForm() {
+    _formKey.currentState?.reset();
     _descriptionController.clear();
     _customerController.clear();
     _phoneController.clear();
@@ -313,7 +352,8 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
 
   Future<void> _showQueuedDialog(String jobId) async {
     final syncService = ref.read(syncServiceProvider);
-    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!context.mounted) return;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -326,8 +366,8 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                 Navigator.pop(dialogContext);
                 try {
                   final report = await syncService.syncAll();
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (!context.mounted) return;
+                  messenger.showSnackBar(
                     SnackBar(
                       content: Text(
                         'Sync done: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures.',
@@ -335,8 +375,8 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                     ),
                   );
                 } catch (error) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (!context.mounted) return;
+                  messenger.showSnackBar(
                     SnackBar(content: Text('Sync failed: $error')),
                   );
                 }
@@ -360,5 +400,77 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     final file = File('${dir.path}/label-$jobId.pdf');
     await file.writeAsBytes(bytes, flush: true);
     await Share.shareXFiles([XFile(file.path)], text: 'Label $jobId');
+  }
+}
+
+class _HeaderCard extends StatelessWidget {
+  const _HeaderCard({required this.isDark});
+
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [
+                  MajesticColors.darkCard,
+                  MajesticColors.darkSurface,
+                ]
+              : [
+                  MajesticColors.forest.withValues(alpha: 0.08),
+                  MajesticColors.gold.withValues(alpha: 0.05),
+                ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark
+              ? MajesticColors.darkBorder
+              : MajesticColors.forest.withValues(alpha: 0.1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? MajesticColors.gold.withValues(alpha: 0.2)
+                  : MajesticColors.forest.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.add_shopping_cart,
+              color: isDark ? MajesticColors.gold : MajesticColors.forest,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'New Item Intake',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Capture item details and photos for tracking',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

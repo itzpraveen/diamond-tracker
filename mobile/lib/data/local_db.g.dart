@@ -1179,103 +1179,22 @@ typedef $$LocalJobsTableUpdateCompanionBuilder = LocalJobsCompanion Function({
   Value<DateTime> updatedAt,
 });
 
-class $$LocalJobsTableFilterComposer
-    extends Composer<_$AppDatabase, $LocalJobsTable> {
-  $$LocalJobsTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get jobId => $composableBuilder(
-      column: $table.jobId, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get data => $composableBuilder(
-      column: $table.data, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get status => $composableBuilder(
-      column: $table.status, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
-      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
-}
-
-class $$LocalJobsTableOrderingComposer
-    extends Composer<_$AppDatabase, $LocalJobsTable> {
-  $$LocalJobsTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get jobId => $composableBuilder(
-      column: $table.jobId, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get data => $composableBuilder(
-      column: $table.data, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get status => $composableBuilder(
-      column: $table.status, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
-      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
-}
-
-class $$LocalJobsTableAnnotationComposer
-    extends Composer<_$AppDatabase, $LocalJobsTable> {
-  $$LocalJobsTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<String> get jobId =>
-      $composableBuilder(column: $table.jobId, builder: (column) => column);
-
-  GeneratedColumn<String> get data =>
-      $composableBuilder(column: $table.data, builder: (column) => column);
-
-  GeneratedColumn<String> get status =>
-      $composableBuilder(column: $table.status, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get updatedAt =>
-      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
-}
-
 class $$LocalJobsTableTableManager extends RootTableManager<
     _$AppDatabase,
     $LocalJobsTable,
     LocalJob,
     $$LocalJobsTableFilterComposer,
     $$LocalJobsTableOrderingComposer,
-    $$LocalJobsTableAnnotationComposer,
     $$LocalJobsTableCreateCompanionBuilder,
-    $$LocalJobsTableUpdateCompanionBuilder,
-    (LocalJob, BaseReferences<_$AppDatabase, $LocalJobsTable, LocalJob>),
-    LocalJob,
-    PrefetchHooks Function()> {
+    $$LocalJobsTableUpdateCompanionBuilder> {
   $$LocalJobsTableTableManager(_$AppDatabase db, $LocalJobsTable table)
       : super(TableManagerState(
           db: db,
           table: table,
-          createFilteringComposer: () =>
-              $$LocalJobsTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$LocalJobsTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$LocalJobsTableAnnotationComposer($db: db, $table: table),
+          filteringComposer:
+              $$LocalJobsTableFilterComposer(ComposerState(db, table)),
+          orderingComposer:
+              $$LocalJobsTableOrderingComposer(ComposerState(db, table)),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> jobId = const Value.absent(),
@@ -1304,25 +1223,67 @@ class $$LocalJobsTableTableManager extends RootTableManager<
             status: status,
             updatedAt: updatedAt,
           ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
         ));
 }
 
-typedef $$LocalJobsTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $LocalJobsTable,
-    LocalJob,
-    $$LocalJobsTableFilterComposer,
-    $$LocalJobsTableOrderingComposer,
-    $$LocalJobsTableAnnotationComposer,
-    $$LocalJobsTableCreateCompanionBuilder,
-    $$LocalJobsTableUpdateCompanionBuilder,
-    (LocalJob, BaseReferences<_$AppDatabase, $LocalJobsTable, LocalJob>),
-    LocalJob,
-    PrefetchHooks Function()>;
+class $$LocalJobsTableFilterComposer
+    extends FilterComposer<_$AppDatabase, $LocalJobsTable> {
+  $$LocalJobsTableFilterComposer(super.$state);
+  ColumnFilters<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get jobId => $state.composableBuilder(
+      column: $state.table.jobId,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get data => $state.composableBuilder(
+      column: $state.table.data,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get status => $state.composableBuilder(
+      column: $state.table.status,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<DateTime> get updatedAt => $state.composableBuilder(
+      column: $state.table.updatedAt,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+}
+
+class $$LocalJobsTableOrderingComposer
+    extends OrderingComposer<_$AppDatabase, $LocalJobsTable> {
+  $$LocalJobsTableOrderingComposer(super.$state);
+  ColumnOrderings<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get jobId => $state.composableBuilder(
+      column: $state.table.jobId,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get data => $state.composableBuilder(
+      column: $state.table.data,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get status => $state.composableBuilder(
+      column: $state.table.status,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<DateTime> get updatedAt => $state.composableBuilder(
+      column: $state.table.updatedAt,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+}
+
 typedef $$LocalPhotosTableCreateCompanionBuilder = LocalPhotosCompanion
     Function({
   Value<int> id,
@@ -1338,94 +1299,22 @@ typedef $$LocalPhotosTableUpdateCompanionBuilder = LocalPhotosCompanion
   Value<bool> uploaded,
 });
 
-class $$LocalPhotosTableFilterComposer
-    extends Composer<_$AppDatabase, $LocalPhotosTable> {
-  $$LocalPhotosTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get jobId => $composableBuilder(
-      column: $table.jobId, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get path => $composableBuilder(
-      column: $table.path, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get uploaded => $composableBuilder(
-      column: $table.uploaded, builder: (column) => ColumnFilters(column));
-}
-
-class $$LocalPhotosTableOrderingComposer
-    extends Composer<_$AppDatabase, $LocalPhotosTable> {
-  $$LocalPhotosTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get jobId => $composableBuilder(
-      column: $table.jobId, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get path => $composableBuilder(
-      column: $table.path, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get uploaded => $composableBuilder(
-      column: $table.uploaded, builder: (column) => ColumnOrderings(column));
-}
-
-class $$LocalPhotosTableAnnotationComposer
-    extends Composer<_$AppDatabase, $LocalPhotosTable> {
-  $$LocalPhotosTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<String> get jobId =>
-      $composableBuilder(column: $table.jobId, builder: (column) => column);
-
-  GeneratedColumn<String> get path =>
-      $composableBuilder(column: $table.path, builder: (column) => column);
-
-  GeneratedColumn<bool> get uploaded =>
-      $composableBuilder(column: $table.uploaded, builder: (column) => column);
-}
-
 class $$LocalPhotosTableTableManager extends RootTableManager<
     _$AppDatabase,
     $LocalPhotosTable,
     LocalPhoto,
     $$LocalPhotosTableFilterComposer,
     $$LocalPhotosTableOrderingComposer,
-    $$LocalPhotosTableAnnotationComposer,
     $$LocalPhotosTableCreateCompanionBuilder,
-    $$LocalPhotosTableUpdateCompanionBuilder,
-    (LocalPhoto, BaseReferences<_$AppDatabase, $LocalPhotosTable, LocalPhoto>),
-    LocalPhoto,
-    PrefetchHooks Function()> {
+    $$LocalPhotosTableUpdateCompanionBuilder> {
   $$LocalPhotosTableTableManager(_$AppDatabase db, $LocalPhotosTable table)
       : super(TableManagerState(
           db: db,
           table: table,
-          createFilteringComposer: () =>
-              $$LocalPhotosTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$LocalPhotosTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$LocalPhotosTableAnnotationComposer($db: db, $table: table),
+          filteringComposer:
+              $$LocalPhotosTableFilterComposer(ComposerState(db, table)),
+          orderingComposer:
+              $$LocalPhotosTableOrderingComposer(ComposerState(db, table)),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> jobId = const Value.absent(),
@@ -1450,25 +1339,57 @@ class $$LocalPhotosTableTableManager extends RootTableManager<
             path: path,
             uploaded: uploaded,
           ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
         ));
 }
 
-typedef $$LocalPhotosTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $LocalPhotosTable,
-    LocalPhoto,
-    $$LocalPhotosTableFilterComposer,
-    $$LocalPhotosTableOrderingComposer,
-    $$LocalPhotosTableAnnotationComposer,
-    $$LocalPhotosTableCreateCompanionBuilder,
-    $$LocalPhotosTableUpdateCompanionBuilder,
-    (LocalPhoto, BaseReferences<_$AppDatabase, $LocalPhotosTable, LocalPhoto>),
-    LocalPhoto,
-    PrefetchHooks Function()>;
+class $$LocalPhotosTableFilterComposer
+    extends FilterComposer<_$AppDatabase, $LocalPhotosTable> {
+  $$LocalPhotosTableFilterComposer(super.$state);
+  ColumnFilters<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get jobId => $state.composableBuilder(
+      column: $state.table.jobId,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get path => $state.composableBuilder(
+      column: $state.table.path,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<bool> get uploaded => $state.composableBuilder(
+      column: $state.table.uploaded,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+}
+
+class $$LocalPhotosTableOrderingComposer
+    extends OrderingComposer<_$AppDatabase, $LocalPhotosTable> {
+  $$LocalPhotosTableOrderingComposer(super.$state);
+  ColumnOrderings<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get jobId => $state.composableBuilder(
+      column: $state.table.jobId,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get path => $state.composableBuilder(
+      column: $state.table.path,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<bool> get uploaded => $state.composableBuilder(
+      column: $state.table.uploaded,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+}
+
 typedef $$ScanQueueTableCreateCompanionBuilder = ScanQueueCompanion Function({
   Value<int> id,
   required String jobId,
@@ -1486,115 +1407,22 @@ typedef $$ScanQueueTableUpdateCompanionBuilder = ScanQueueCompanion Function({
   Value<bool> synced,
 });
 
-class $$ScanQueueTableFilterComposer
-    extends Composer<_$AppDatabase, $ScanQueueTable> {
-  $$ScanQueueTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get jobId => $composableBuilder(
-      column: $table.jobId, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get toStatus => $composableBuilder(
-      column: $table.toStatus, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get payload => $composableBuilder(
-      column: $table.payload, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<bool> get synced => $composableBuilder(
-      column: $table.synced, builder: (column) => ColumnFilters(column));
-}
-
-class $$ScanQueueTableOrderingComposer
-    extends Composer<_$AppDatabase, $ScanQueueTable> {
-  $$ScanQueueTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get jobId => $composableBuilder(
-      column: $table.jobId, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get toStatus => $composableBuilder(
-      column: $table.toStatus, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get payload => $composableBuilder(
-      column: $table.payload, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<bool> get synced => $composableBuilder(
-      column: $table.synced, builder: (column) => ColumnOrderings(column));
-}
-
-class $$ScanQueueTableAnnotationComposer
-    extends Composer<_$AppDatabase, $ScanQueueTable> {
-  $$ScanQueueTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<String> get jobId =>
-      $composableBuilder(column: $table.jobId, builder: (column) => column);
-
-  GeneratedColumn<String> get toStatus =>
-      $composableBuilder(column: $table.toStatus, builder: (column) => column);
-
-  GeneratedColumn<String> get payload =>
-      $composableBuilder(column: $table.payload, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
-
-  GeneratedColumn<bool> get synced =>
-      $composableBuilder(column: $table.synced, builder: (column) => column);
-}
-
 class $$ScanQueueTableTableManager extends RootTableManager<
     _$AppDatabase,
     $ScanQueueTable,
     ScanQueueData,
     $$ScanQueueTableFilterComposer,
     $$ScanQueueTableOrderingComposer,
-    $$ScanQueueTableAnnotationComposer,
     $$ScanQueueTableCreateCompanionBuilder,
-    $$ScanQueueTableUpdateCompanionBuilder,
-    (
-      ScanQueueData,
-      BaseReferences<_$AppDatabase, $ScanQueueTable, ScanQueueData>
-    ),
-    ScanQueueData,
-    PrefetchHooks Function()> {
+    $$ScanQueueTableUpdateCompanionBuilder> {
   $$ScanQueueTableTableManager(_$AppDatabase db, $ScanQueueTable table)
       : super(TableManagerState(
           db: db,
           table: table,
-          createFilteringComposer: () =>
-              $$ScanQueueTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$ScanQueueTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$ScanQueueTableAnnotationComposer($db: db, $table: table),
+          filteringComposer:
+              $$ScanQueueTableFilterComposer(ComposerState(db, table)),
+          orderingComposer:
+              $$ScanQueueTableOrderingComposer(ComposerState(db, table)),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<String> jobId = const Value.absent(),
@@ -1627,28 +1455,77 @@ class $$ScanQueueTableTableManager extends RootTableManager<
             createdAt: createdAt,
             synced: synced,
           ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
         ));
 }
 
-typedef $$ScanQueueTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $ScanQueueTable,
-    ScanQueueData,
-    $$ScanQueueTableFilterComposer,
-    $$ScanQueueTableOrderingComposer,
-    $$ScanQueueTableAnnotationComposer,
-    $$ScanQueueTableCreateCompanionBuilder,
-    $$ScanQueueTableUpdateCompanionBuilder,
-    (
-      ScanQueueData,
-      BaseReferences<_$AppDatabase, $ScanQueueTable, ScanQueueData>
-    ),
-    ScanQueueData,
-    PrefetchHooks Function()>;
+class $$ScanQueueTableFilterComposer
+    extends FilterComposer<_$AppDatabase, $ScanQueueTable> {
+  $$ScanQueueTableFilterComposer(super.$state);
+  ColumnFilters<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get jobId => $state.composableBuilder(
+      column: $state.table.jobId,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get toStatus => $state.composableBuilder(
+      column: $state.table.toStatus,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get payload => $state.composableBuilder(
+      column: $state.table.payload,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<DateTime> get createdAt => $state.composableBuilder(
+      column: $state.table.createdAt,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<bool> get synced => $state.composableBuilder(
+      column: $state.table.synced,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+}
+
+class $$ScanQueueTableOrderingComposer
+    extends OrderingComposer<_$AppDatabase, $ScanQueueTable> {
+  $$ScanQueueTableOrderingComposer(super.$state);
+  ColumnOrderings<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get jobId => $state.composableBuilder(
+      column: $state.table.jobId,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get toStatus => $state.composableBuilder(
+      column: $state.table.toStatus,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get payload => $state.composableBuilder(
+      column: $state.table.payload,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<DateTime> get createdAt => $state.composableBuilder(
+      column: $state.table.createdAt,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<bool> get synced => $state.composableBuilder(
+      column: $state.table.synced,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+}
+
 typedef $$SyncFailuresTableCreateCompanionBuilder = SyncFailuresCompanion
     Function({
   Value<int> id,
@@ -1664,97 +1541,22 @@ typedef $$SyncFailuresTableUpdateCompanionBuilder = SyncFailuresCompanion
   Value<DateTime> createdAt,
 });
 
-class $$SyncFailuresTableFilterComposer
-    extends Composer<_$AppDatabase, $SyncFailuresTable> {
-  $$SyncFailuresTableFilterComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnFilters<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<int> get queueId => $composableBuilder(
-      column: $table.queueId, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<String> get error => $composableBuilder(
-      column: $table.error, builder: (column) => ColumnFilters(column));
-
-  ColumnFilters<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnFilters(column));
-}
-
-class $$SyncFailuresTableOrderingComposer
-    extends Composer<_$AppDatabase, $SyncFailuresTable> {
-  $$SyncFailuresTableOrderingComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  ColumnOrderings<int> get id => $composableBuilder(
-      column: $table.id, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<int> get queueId => $composableBuilder(
-      column: $table.queueId, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<String> get error => $composableBuilder(
-      column: $table.error, builder: (column) => ColumnOrderings(column));
-
-  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
-      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
-}
-
-class $$SyncFailuresTableAnnotationComposer
-    extends Composer<_$AppDatabase, $SyncFailuresTable> {
-  $$SyncFailuresTableAnnotationComposer({
-    required super.$db,
-    required super.$table,
-    super.joinBuilder,
-    super.$addJoinBuilderToRootComposer,
-    super.$removeJoinBuilderFromRootComposer,
-  });
-  GeneratedColumn<int> get id =>
-      $composableBuilder(column: $table.id, builder: (column) => column);
-
-  GeneratedColumn<int> get queueId =>
-      $composableBuilder(column: $table.queueId, builder: (column) => column);
-
-  GeneratedColumn<String> get error =>
-      $composableBuilder(column: $table.error, builder: (column) => column);
-
-  GeneratedColumn<DateTime> get createdAt =>
-      $composableBuilder(column: $table.createdAt, builder: (column) => column);
-}
-
 class $$SyncFailuresTableTableManager extends RootTableManager<
     _$AppDatabase,
     $SyncFailuresTable,
     SyncFailure,
     $$SyncFailuresTableFilterComposer,
     $$SyncFailuresTableOrderingComposer,
-    $$SyncFailuresTableAnnotationComposer,
     $$SyncFailuresTableCreateCompanionBuilder,
-    $$SyncFailuresTableUpdateCompanionBuilder,
-    (
-      SyncFailure,
-      BaseReferences<_$AppDatabase, $SyncFailuresTable, SyncFailure>
-    ),
-    SyncFailure,
-    PrefetchHooks Function()> {
+    $$SyncFailuresTableUpdateCompanionBuilder> {
   $$SyncFailuresTableTableManager(_$AppDatabase db, $SyncFailuresTable table)
       : super(TableManagerState(
           db: db,
           table: table,
-          createFilteringComposer: () =>
-              $$SyncFailuresTableFilterComposer($db: db, $table: table),
-          createOrderingComposer: () =>
-              $$SyncFailuresTableOrderingComposer($db: db, $table: table),
-          createComputedFieldComposer: () =>
-              $$SyncFailuresTableAnnotationComposer($db: db, $table: table),
+          filteringComposer:
+              $$SyncFailuresTableFilterComposer(ComposerState(db, table)),
+          orderingComposer:
+              $$SyncFailuresTableOrderingComposer(ComposerState(db, table)),
           updateCompanionCallback: ({
             Value<int> id = const Value.absent(),
             Value<int> queueId = const Value.absent(),
@@ -1779,28 +1581,56 @@ class $$SyncFailuresTableTableManager extends RootTableManager<
             error: error,
             createdAt: createdAt,
           ),
-          withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
-              .toList(),
-          prefetchHooksCallback: null,
         ));
 }
 
-typedef $$SyncFailuresTableProcessedTableManager = ProcessedTableManager<
-    _$AppDatabase,
-    $SyncFailuresTable,
-    SyncFailure,
-    $$SyncFailuresTableFilterComposer,
-    $$SyncFailuresTableOrderingComposer,
-    $$SyncFailuresTableAnnotationComposer,
-    $$SyncFailuresTableCreateCompanionBuilder,
-    $$SyncFailuresTableUpdateCompanionBuilder,
-    (
-      SyncFailure,
-      BaseReferences<_$AppDatabase, $SyncFailuresTable, SyncFailure>
-    ),
-    SyncFailure,
-    PrefetchHooks Function()>;
+class $$SyncFailuresTableFilterComposer
+    extends FilterComposer<_$AppDatabase, $SyncFailuresTable> {
+  $$SyncFailuresTableFilterComposer(super.$state);
+  ColumnFilters<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<int> get queueId => $state.composableBuilder(
+      column: $state.table.queueId,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get error => $state.composableBuilder(
+      column: $state.table.error,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<DateTime> get createdAt => $state.composableBuilder(
+      column: $state.table.createdAt,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+}
+
+class $$SyncFailuresTableOrderingComposer
+    extends OrderingComposer<_$AppDatabase, $SyncFailuresTable> {
+  $$SyncFailuresTableOrderingComposer(super.$state);
+  ColumnOrderings<int> get id => $state.composableBuilder(
+      column: $state.table.id,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<int> get queueId => $state.composableBuilder(
+      column: $state.table.queueId,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get error => $state.composableBuilder(
+      column: $state.table.error,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<DateTime> get createdAt => $state.composableBuilder(
+      column: $state.table.createdAt,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+}
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;

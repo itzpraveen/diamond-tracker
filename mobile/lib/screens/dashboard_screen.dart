@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:diamond_tracker_mobile/app.dart';
 import 'package:diamond_tracker_mobile/models/enums.dart';
 import 'package:diamond_tracker_mobile/screens/delivery_screen.dart';
 import 'package:diamond_tracker_mobile/screens/dispatch_screen.dart';
@@ -16,6 +17,8 @@ import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_theme.dart';
 import 'package:diamond_tracker_mobile/ui/status_utils.dart';
+import 'package:diamond_tracker_mobile/widgets/action_card.dart';
+import 'package:diamond_tracker_mobile/widgets/metric_card.dart';
 
 class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
@@ -42,219 +45,184 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final role = authState.role;
     final roleLabel = _roleLabel(role);
     final metrics = _metricsForRole(role);
 
     return MajesticScaffold(
       title: 'Majestic Tracking',
+      showBackButton: false,
       actions: [
+        // Theme toggle
+        IconButton(
+          icon: Icon(
+            isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+            color: isDark ? MajesticColors.gold : MajesticColors.forest,
+          ),
+          onPressed: () => ref.read(themeModeProvider.notifier).toggleTheme(),
+          tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+        ),
+        // Logout
         IconButton(
           icon: const Icon(Icons.logout),
           onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-        )
+          tooltip: 'Sign out',
+        ),
       ],
       padding: EdgeInsets.zero,
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: MajesticColors.gold.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(Icons.shield, color: MajesticColors.forest),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Operational Overview', style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Role: $roleLabel',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: MajesticColors.ink.withOpacity(0.6)),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _lastRefresh == null
-                              ? 'Tap refresh to load latest counts.'
-                              : 'Updated ${_relativeTime(_lastRefresh)}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: MajesticColors.ink.withOpacity(0.5)),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _loadingMetrics ? null : _loadMetrics,
-                  ),
-                ],
+      child: RefreshIndicator(
+        onRefresh: _loadMetrics,
+        color: theme.colorScheme.primary,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Header card
+            _HeaderCard(
+              roleLabel: roleLabel,
+              lastRefresh: _lastRefresh,
+              isLoading: _loadingMetrics,
+              onRefresh: _loadMetrics,
+              isDark: isDark,
+            ),
+            const SizedBox(height: 20),
+
+            // Metrics section
+            SectionHeader(
+              title: 'Workload',
+              action: _loadError != null ? 'Retry' : null,
+              onActionTap: _loadError != null ? _loadMetrics : null,
+            ),
+            if (_loadError != null)
+              _ErrorCard(message: _loadError!, isDark: isDark)
+            else
+              MetricGrid(
+                metrics: metrics.map((metric) {
+                  return MetricCardData(
+                    label: metric.label,
+                    value: _metricCounts[metric.label]?.toString(),
+                    subtitle: statusLabel(metric.status),
+                    color: metric.color ?? statusColor(metric.status),
+                  );
+                }).toList(),
+                isLoading: _loadingMetrics,
+              ),
+            const SizedBox(height: 24),
+
+            // Sync status
+            SyncStatusCard(
+              offlineJobs: _offlineJobs,
+              pendingScans: _pendingScans,
+              onSync: _syncQueue,
+              isSyncing: _syncing,
+              lastSyncTime: _lastRefresh,
+            ),
+            const SizedBox(height: 24),
+
+            // Quick actions
+            const SectionHeader(title: 'Quick Actions'),
+            ActionCard(
+              title: 'Quick Scan',
+              subtitle: 'Scan to move to next status',
+              icon: Icons.qr_code_scanner,
+              isPrimary: true,
+              onTap: () => _navigateTo(
+                context,
+                role == Role.dispatch ? const DispatchScreen() : const ScanScreen(),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          _sectionLabel(context, 'Workload Snapshot'),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text('Queue Focus', style: Theme.of(context).textTheme.titleMedium),
-                      ),
-                      if (_loadingMetrics)
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                    ],
-                  ),
-                  if (_loadError != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _loadError!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: MajesticColors.danger),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: metrics
-                        .map(
-                          (metric) => _metricTile(
-                            label: metric.label,
-                            count: _metricCounts[metric.label],
-                            color: metric.color ?? statusColor(metric.status),
-                            statusLabelText: statusLabel(metric.status),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 12),
+            ActionCard(
+              title: 'Lookup / Search',
+              subtitle: 'Find job details and timeline',
+              icon: Icons.search,
+              onTap: () => _navigateTo(context, const LookupScreen()),
             ),
-          ),
-          const SizedBox(height: 16),
-          _sectionLabel(context, 'Sync Health'),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text('Offline Queue', style: Theme.of(context).textTheme.titleMedium),
-                      ),
-                      if (_syncing)
-                        const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _syncMetric(
-                          label: 'Offline jobs',
-                          count: _offlineJobs,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _syncMetric(
-                          label: 'Queued scans',
-                          count: _pendingScans,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.sync),
-                      label: const Text('Sync Now'),
-                      onPressed: _syncing ? null : _syncQueue,
-                    ),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 12),
+            ActionCard(
+              title: 'Report Incident',
+              subtitle: 'Mismatch, damage, or duplicate',
+              icon: Icons.report_gmailerrorred,
+              iconColor: MajesticColors.warning,
+              onTap: () => _navigateTo(context, const IncidentScreen()),
             ),
-          ),
-          const SizedBox(height: 16),
-          _sectionLabel(context, 'Quick Actions'),
-          const SizedBox(height: 8),
-          _actionTile(
-            context,
-            icon: Icons.qr_code_scanner,
-            title: 'Quick Scan',
-            subtitle: 'Scan label to move to next status',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => role == Role.dispatch ? const DispatchScreen() : const ScanScreen()),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _actionTile(
-            context,
-            icon: Icons.search,
-            title: 'Lookup / Search',
-            subtitle: 'Find job details and timeline',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const LookupScreen()),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _actionTile(
-            context,
-            icon: Icons.report_gmailerrorred,
-            title: 'Report Incident',
-            subtitle: 'Mismatch, damage, duplicate scan',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const IncidentScreen()),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _sectionLabel(context, 'Role Actions'),
-          const SizedBox(height: 8),
-          if (role == Role.purchase) _navTile(context, 'Purchase Entry', const PurchaseEntryScreen()),
-          if (role == Role.packing) _navTile(context, 'Packing', const PackingScreen()),
-          if (role == Role.dispatch) _navTile(context, 'Dispatch', const DispatchScreen()),
-          if (role == Role.factory) _navTile(context, 'Factory', const FactoryScreen()),
-          if (role == Role.qcStock) _navTile(context, 'QC / Stock', const QcStockScreen()),
-          if (role == Role.delivery) _navTile(context, 'Delivery', const DeliveryScreen()),
-        ],
+            const SizedBox(height: 24),
+
+            // Role-specific actions
+            if (_hasRoleActions(role)) ...[
+              const SectionHeader(title: 'Your Workspace'),
+              _buildRoleAction(context, role, isDark),
+            ],
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
+  }
+
+  bool _hasRoleActions(Role? role) {
+    return role == Role.purchase ||
+        role == Role.packing ||
+        role == Role.dispatch ||
+        role == Role.factory ||
+        role == Role.qcStock ||
+        role == Role.delivery;
+  }
+
+  Widget _buildRoleAction(BuildContext context, Role? role, bool isDark) {
+    switch (role) {
+      case Role.purchase:
+        return RoleActionButton(
+          title: 'Purchase Entry',
+          subtitle: 'Create new job intake',
+          icon: Icons.add_shopping_cart,
+          color: MajesticColors.gold,
+          onTap: () => _navigateTo(context, const PurchaseEntryScreen()),
+        );
+      case Role.packing:
+        return RoleActionButton(
+          title: 'Packing Station',
+          subtitle: 'Pack items for dispatch',
+          icon: Icons.inventory_2_outlined,
+          onTap: () => _navigateTo(context, const PackingScreen()),
+        );
+      case Role.dispatch:
+        return RoleActionButton(
+          title: 'Dispatch Center',
+          subtitle: 'Manage batches and dispatch',
+          icon: Icons.local_shipping_outlined,
+          onTap: () => _navigateTo(context, const DispatchScreen()),
+        );
+      case Role.factory:
+        return RoleActionButton(
+          title: 'Factory Workflow',
+          subtitle: 'Receive and return items',
+          icon: Icons.factory_outlined,
+          onTap: () => _navigateTo(context, const FactoryScreen()),
+        );
+      case Role.qcStock:
+        return RoleActionButton(
+          title: 'QC / Stock',
+          subtitle: 'Quality check and stock management',
+          icon: Icons.verified_outlined,
+          onTap: () => _navigateTo(context, const QcStockScreen()),
+        );
+      case Role.delivery:
+        return RoleActionButton(
+          title: 'Delivery',
+          subtitle: 'Confirm customer deliveries',
+          icon: Icons.delivery_dining_outlined,
+          color: MajesticColors.success,
+          onTap: () => _navigateTo(context, const DeliveryScreen()),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void _navigateTo(BuildContext context, Widget screen) {
+    Navigator.push(context, MajesticPageRoute(page: screen));
   }
 
   Future<void> _loadMetrics() async {
@@ -307,7 +275,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sync done: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures.',
+            'Sync complete: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures',
           ),
         ),
       );
@@ -324,120 +292,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
-  Widget _sectionLabel(BuildContext context, String label) {
-    return Text(
-      label.toUpperCase(),
-      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            letterSpacing: 2.2,
-            color: MajesticColors.ink.withOpacity(0.55),
-          ),
-    );
-  }
-
-  Widget _metricTile({
-    required String label,
-    required int? count,
-    required Color color,
-    required String statusLabelText,
-  }) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            count?.toString() ?? '--',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(
-            statusLabelText,
-            style: TextStyle(fontSize: 11, color: MajesticColors.ink.withOpacity(0.5)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _syncMetric({required String label, required int? count}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: MajesticColors.cloud,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12)),
-          const SizedBox(height: 6),
-          Text(
-            count?.toString() ?? '--',
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _actionTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: MajesticColors.forest.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: MajesticColors.forest),
-        ),
-        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  Widget _navTile(BuildContext context, String title, Widget screen) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        title: Text(title, style: Theme.of(context).textTheme.titleMedium),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => screen)),
-      ),
-    );
-  }
-
   DateTime _startOfToday() {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
-  }
-
-  String _relativeTime(DateTime? timestamp) {
-    if (timestamp == null) return '-';
-    final diff = DateTime.now().difference(timestamp);
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    if (diff.inDays < 30) return '${diff.inDays}d ago';
-    return '${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}';
   }
 
   List<_MetricSpec> _metricsForRole(Role? role) {
@@ -459,13 +316,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         ];
       case Role.factory:
         return const [
-          _MetricSpec(label: 'Inbound to factory', status: 'DISPATCHED_TO_FACTORY'),
+          _MetricSpec(label: 'Inbound', status: 'DISPATCHED_TO_FACTORY'),
           _MetricSpec(label: 'In workshop', status: 'RECEIVED_AT_FACTORY'),
         ];
       case Role.qcStock:
         return const [
           _MetricSpec(label: 'Awaiting QC', status: 'RETURNED_FROM_FACTORY'),
-          _MetricSpec(label: 'Received at shop', status: 'RECEIVED_AT_SHOP'),
+          _MetricSpec(label: 'At shop', status: 'RECEIVED_AT_SHOP'),
           _MetricSpec(label: 'In stock', status: 'ADDED_TO_STOCK'),
         ];
       case Role.delivery:
@@ -476,10 +333,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case Role.admin:
       case null:
         return const [
-          _MetricSpec(label: 'Ready for dispatch', status: 'PACKED_READY'),
+          _MetricSpec(label: 'Ready to ship', status: 'PACKED_READY'),
           _MetricSpec(label: 'At factory', status: 'RECEIVED_AT_FACTORY'),
           _MetricSpec(label: 'Awaiting QC', status: 'RETURNED_FROM_FACTORY'),
-          _MetricSpec(label: 'Out for delivery', status: 'HANDED_TO_DELIVERY'),
+          _MetricSpec(label: 'Delivering', status: 'HANDED_TO_DELIVERY'),
         ];
     }
   }
@@ -503,6 +360,179 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case null:
         return 'Unassigned';
     }
+  }
+}
+
+class _HeaderCard extends StatelessWidget {
+  const _HeaderCard({
+    required this.roleLabel,
+    required this.lastRefresh,
+    required this.isLoading,
+    required this.onRefresh,
+    required this.isDark,
+  });
+
+  final String roleLabel;
+  final DateTime? lastRefresh;
+  final bool isLoading;
+  final VoidCallback onRefresh;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [
+                  MajesticColors.darkCard,
+                  MajesticColors.darkSurface,
+                ]
+              : [
+                  MajesticColors.forest.withValues(alpha: 0.08),
+                  MajesticColors.gold.withValues(alpha: 0.05),
+                ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark
+              ? MajesticColors.darkBorder
+              : MajesticColors.forest.withValues(alpha: 0.1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? MajesticColors.gold.withValues(alpha: 0.2)
+                  : MajesticColors.forest.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              Icons.shield_outlined,
+              color: isDark ? MajesticColors.gold : MajesticColors.forest,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Operational Overview',
+                  style: theme.textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? MajesticColors.gold.withValues(alpha: 0.2)
+                            : MajesticColors.forest.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        roleLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: isDark ? MajesticColors.gold : MajesticColors.forest,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      lastRefresh == null
+                          ? 'Pull to refresh'
+                          : _formatTime(lastRefresh!),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Material(
+            color: isDark
+                ? MajesticColors.darkSurface
+                : Colors.white.withValues(alpha: 0.8),
+            borderRadius: BorderRadius.circular(12),
+            child: InkWell(
+              onTap: isLoading ? null : onRefresh,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                child: isLoading
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: isDark ? MajesticColors.gold : MajesticColors.forest,
+                        ),
+                      )
+                    : Icon(
+                        Icons.refresh,
+                        color: isDark ? MajesticColors.gold : MajesticColors.forest,
+                      ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+}
+
+class _ErrorCard extends StatelessWidget {
+  const _ErrorCard({required this.message, required this.isDark});
+
+  final String message;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: MajesticColors.danger.withValues(alpha: isDark ? 0.2 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: MajesticColors.danger.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.error_outline, color: MajesticColors.danger),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: MajesticColors.danger),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
