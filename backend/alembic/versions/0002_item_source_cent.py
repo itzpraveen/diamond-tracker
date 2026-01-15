@@ -1,6 +1,6 @@
 """add item source and diamond cent
 
-Revision ID: 0002_add_item_source_diamond_cent
+Revision ID: 0002_item_source_cent
 Revises: 0001_init
 Create Date: 2024-08-30 00:00:00.000000
 """
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "0002_add_item_source_diamond_cent"
+revision: str = "0002_item_source_cent"
 down_revision: Union[str, None] = "0001_init"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
