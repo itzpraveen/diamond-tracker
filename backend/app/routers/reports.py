@@ -5,7 +5,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -16,28 +16,49 @@ from app.schemas import AgingBucket, BatchDelay, TurnaroundMetrics, UserActivity
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+def _stream_csv_rows(header: list[str], rows, row_builder):
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(header)
+    yield output.getvalue()
+    output.seek(0)
+    output.truncate(0)
+    for row in rows:
+        writer.writerow(row_builder(row))
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+
 @router.get("/pending-aging", response_model=List[AgingBucket])
 def pending_aging(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.QC_STOCK))):
-    now = datetime.now(timezone.utc)
+    base_time = func.coalesce(ItemJob.last_scan_at, ItemJob.created_at)
+    age_days = func.date_part("day", func.now() - base_time)
+    bucket_0_2 = func.sum(case((age_days <= 2, 1), else_=0)).label("bucket_0_2")
+    bucket_3_7 = func.sum(case((age_days.between(3, 7), 1), else_=0)).label("bucket_3_7")
+    bucket_8_15 = func.sum(case((age_days.between(8, 15), 1), else_=0)).label("bucket_8_15")
+    bucket_16_30 = func.sum(case((age_days.between(16, 30), 1), else_=0)).label("bucket_16_30")
+    bucket_30_plus = func.sum(case((age_days > 30, 1), else_=0)).label("bucket_30_plus")
+
+    rows = (
+        db.query(ItemJob.current_status.label("status"), bucket_0_2, bucket_3_7, bucket_8_15, bucket_16_30, bucket_30_plus)
+        .group_by(ItemJob.current_status)
+        .all()
+    )
+    row_map = {row.status: row for row in rows}
     buckets = []
-    statuses = [status for status in Status]
-    for status in statuses:
-        jobs = db.query(ItemJob).filter(ItemJob.current_status == status).all()
-        counts = {"bucket_0_2": 0, "bucket_3_7": 0, "bucket_8_15": 0, "bucket_16_30": 0, "bucket_30_plus": 0}
-        for job in jobs:
-            base = job.last_scan_at or job.created_at
-            age_days = (now - base).days if base else 0
-            if age_days <= 2:
-                counts["bucket_0_2"] += 1
-            elif age_days <= 7:
-                counts["bucket_3_7"] += 1
-            elif age_days <= 15:
-                counts["bucket_8_15"] += 1
-            elif age_days <= 30:
-                counts["bucket_16_30"] += 1
-            else:
-                counts["bucket_30_plus"] += 1
-        buckets.append(AgingBucket(status=status, **counts))
+    for status in Status:
+        row = row_map.get(status)
+        buckets.append(
+            AgingBucket(
+                status=status,
+                bucket_0_2=int(getattr(row, "bucket_0_2", 0) or 0),
+                bucket_3_7=int(getattr(row, "bucket_3_7", 0) or 0),
+                bucket_8_15=int(getattr(row, "bucket_8_15", 0) or 0),
+                bucket_16_30=int(getattr(row, "bucket_16_30", 0) or 0),
+                bucket_30_plus=int(getattr(row, "bucket_30_plus", 0) or 0),
+            )
+        )
     return buckets
 
 
@@ -52,32 +73,40 @@ def turnaround(db: Session = Depends(get_db), user=Depends(require_roles(Role.AD
         ("ShopReceive->Stock/Delivery", Status.RECEIVED_AT_SHOP, None),
         ("Delivery->Delivered", Status.HANDED_TO_DELIVERY, Status.DELIVERED_TO_CUSTOMER),
     ]
-    results: List[TurnaroundMetrics] = []
-    jobs = db.query(ItemJob).all()
-    for label, from_status, to_status in stages:
-        durations = []
-        for job in jobs:
-            events_by_status = {}
-            for event in job.status_events:
-                events_by_status.setdefault(event.to_status, []).append(event)
-            if from_status not in events_by_status:
+    event_rows = (
+        db.query(
+            StatusEvent.job_id,
+            StatusEvent.to_status,
+            func.min(StatusEvent.timestamp).label("timestamp"),
+        )
+        .group_by(StatusEvent.job_id, StatusEvent.to_status)
+        .all()
+    )
+    events_by_job: dict = {}
+    for row in event_rows:
+        events_by_job.setdefault(row.job_id, {})[row.to_status] = row.timestamp
+
+    durations_by_stage = {label: [] for label, _, _ in stages}
+    for statuses in events_by_job.values():
+        for label, from_status, to_status in stages:
+            start = statuses.get(from_status)
+            if not start:
                 continue
-            start = min(events_by_status[from_status], key=lambda e: e.timestamp).timestamp
             if to_status:
-                if to_status not in events_by_status:
+                end = statuses.get(to_status)
+                if not end:
                     continue
-                end = min(events_by_status[to_status], key=lambda e: e.timestamp).timestamp
-                durations.append((end - start).days)
+                durations_by_stage[label].append((end - start).days)
             else:
                 candidates = [Status.ADDED_TO_STOCK, Status.HANDED_TO_DELIVERY]
-                timestamps = [
-                    min(events_by_status[c], key=lambda e: e.timestamp).timestamp
-                    for c in candidates
-                    if c in events_by_status
-                ]
+                timestamps = [statuses.get(candidate) for candidate in candidates if statuses.get(candidate)]
                 if not timestamps:
                     continue
-                durations.append((min(timestamps) - start).days)
+                durations_by_stage[label].append((min(timestamps) - start).days)
+
+    results: List[TurnaroundMetrics] = []
+    for label, _, _ in stages:
+        durations = durations_by_stage[label]
         average = sum(durations) / len(durations) if durations else 0
         results.append(TurnaroundMetrics(stage=label, average_days=round(average, 2)))
     return results
@@ -117,23 +146,30 @@ def user_activity(db: Session = Depends(get_db), user=Depends(require_roles(Role
 
 @router.get("/export.csv")
 def export_csv(type: str = Query(...), db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN))):
-    output = StringIO()
-    writer = csv.writer(output)
+    headers = {"Content-Disposition": f'attachment; filename="{type}.csv"'}
 
     if type == "jobs":
-        writer.writerow(["job_id", "status", "holder_role", "created_at", "phone"])
-        for job in db.query(ItemJob).all():
-            writer.writerow([job.job_id, job.current_status, job.current_holder_role, job.created_at, job.customer_phone])
+        rows = db.query(ItemJob).execution_options(stream_results=True).yield_per(1000)
+        generator = _stream_csv_rows(
+            ["job_id", "status", "holder_role", "created_at", "phone"],
+            rows,
+            lambda job: [job.job_id, job.current_status, job.current_holder_role, job.created_at, job.customer_phone],
+        )
     elif type == "incidents":
-        writer.writerow(["id", "type", "status", "created_at", "description"])
-        for inc in db.query(Incident).all():
-            writer.writerow([inc.id, inc.type, inc.status, inc.created_at, inc.description])
+        rows = db.query(Incident).execution_options(stream_results=True).yield_per(1000)
+        generator = _stream_csv_rows(
+            ["id", "type", "status", "created_at", "description"],
+            rows,
+            lambda inc: [inc.id, inc.type, inc.status, inc.created_at, inc.description],
+        )
     elif type == "batches":
-        writer.writerow(["batch_code", "status", "dispatch_date", "expected_return_date", "item_count"])
-        for batch in db.query(Batch).all():
-            writer.writerow([batch.batch_code, batch.status, batch.dispatch_date, batch.expected_return_date, batch.item_count])
+        rows = db.query(Batch).execution_options(stream_results=True).yield_per(1000)
+        generator = _stream_csv_rows(
+            ["batch_code", "status", "dispatch_date", "expected_return_date", "item_count"],
+            rows,
+            lambda batch: [batch.batch_code, batch.status, batch.dispatch_date, batch.expected_return_date, batch.item_count],
+        )
     else:
         raise HTTPException(status_code=400, detail="Unsupported export type")
 
-    output.seek(0)
-    return StreamingResponse(iter([output.getvalue()]), media_type="text/csv")
+    return StreamingResponse(generator, media_type="text/csv", headers=headers)

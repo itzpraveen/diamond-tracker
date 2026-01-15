@@ -21,10 +21,17 @@ class SyncService {
         final data = jsonDecode(job.data) as Map<String, dynamic>;
         final photos = await db.getPhotos(job.jobId, uploaded: false);
         final uploads = <Map<String, dynamic>>[];
-        for (final photo in photos) {
-          final upload = await api.uploadImage(File(photo.path));
-          uploads.add(upload);
-          await db.markPhotoUploaded(photo.id);
+        final chunkSize = 3;
+        for (var index = 0; index < photos.length; index += chunkSize) {
+          final slice = photos.skip(index).take(chunkSize).toList();
+          final results = await Future.wait(
+            slice.map((photo) async {
+              final upload = await api.uploadImage(File(photo.path));
+              await db.markPhotoUploaded(photo.id);
+              return upload;
+            }),
+          );
+          uploads.addAll(results);
         }
         final payload = {
           'customer_name': data['customer_name'],

@@ -14,6 +14,7 @@ from app.models import Batch, ItemJob
 
 settings = get_settings()
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "majestic-logo.png"
+HTTP_CLIENT = httpx.Client(timeout=5.0, follow_redirects=True)
 
 
 def _format_number(value: float | None, suffix: str = "") -> str:
@@ -47,7 +48,7 @@ def _load_photo_bytes(photo: dict) -> bytes | None:
     if not url or url.startswith("/"):
         return None
     try:
-        response = httpx.get(url, timeout=5.0)
+        response = HTTP_CLIENT.get(url)
         response.raise_for_status()
         return response.content
     except Exception:

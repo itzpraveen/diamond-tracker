@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -48,6 +48,17 @@ function CreateJobModal({
   const [error, setError] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const previewUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    previewUrlsRef.current = photoPreviews;
+  }, [photoPreviews]);
+
+  useEffect(() => {
+    return () => {
+      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: async () => {
