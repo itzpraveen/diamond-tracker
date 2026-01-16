@@ -5,8 +5,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class ApiClient {
   ApiClient({Dio? dio, FlutterSecureStorage? storage})
-      : _dio = dio ?? Dio(BaseOptions(baseUrl: _defaultBaseUrl())),
-        _refreshDio = Dio(BaseOptions(baseUrl: _defaultBaseUrl())),
+      : _dio = dio ?? Dio(_baseOptions()),
+        _refreshDio = Dio(_baseOptions()),
         _storage = storage ?? const FlutterSecureStorage() {
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -72,12 +72,23 @@ class ApiClient {
   final FlutterSecureStorage _storage;
   Future<void>? _refreshFuture;
 
+  static const Duration _timeout = Duration(seconds: 15);
+
   static String _defaultBaseUrl() {
     const value = String.fromEnvironment(
       'API_BASE_URL',
       defaultValue: 'https://tracking-backend.majesticjewellers.com',
     );
     return value;
+  }
+
+  static BaseOptions _baseOptions() {
+    return BaseOptions(
+      baseUrl: _defaultBaseUrl(),
+      connectTimeout: _timeout,
+      receiveTimeout: _timeout,
+      sendTimeout: _timeout,
+    );
   }
 
   Future<Map<String, dynamic>> login(String username, String password) async {

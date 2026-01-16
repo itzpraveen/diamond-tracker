@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -28,6 +30,8 @@ class DashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  static const Duration _metricsTimeout = Duration(seconds: 20);
+
   bool _loadingMetrics = false;
   bool _syncing = false;
   String? _loadError;
@@ -250,14 +254,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final db = ref.read(dbProvider);
     final api = ref.read(apiClientProvider);
     try {
-      final offlineJobs = await db.offlineJobCount();
-      final pendingScans = await db.pendingQueueCount();
+      final offlineJobs = await db.offlineJobCount().timeout(_metricsTimeout);
+      final pendingScans = await db.pendingQueueCount().timeout(_metricsTimeout);
       final entries = await Future.wait(metrics.map((metric) async {
         try {
           final jobs = await api.listJobs(
             status: metric.status,
             fromDate: metric.todayOnly ? _startOfToday() : null,
-          );
+          ).timeout(_metricsTimeout);
           return MapEntry<String, int?>(metric.label, jobs.length);
         } catch (_) {
           return MapEntry<String, int?>(metric.label, null);
@@ -272,6 +276,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           ..addEntries(entries);
         _lastRefresh = DateTime.now();
       });
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() => _loadError = 'Refresh timed out. Pull to retry.');
     } catch (error) {
       if (!mounted) return;
       setState(() => _loadError = 'Failed to refresh: $error');
