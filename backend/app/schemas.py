@@ -136,6 +136,11 @@ class JobDetail(JobOut):
     status_events: List[StatusEventOut]
 
 
+class JobMetric(BaseModel):
+    status: Status
+    count: int
+
+
 class JobScanRequest(BaseModel):
     to_status: Status
     remarks: Optional[str] = None

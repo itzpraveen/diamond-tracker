@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import require_roles
 from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, ItemJob, JobEditAudit, Role, Status, StatusEvent, User
-from app.schemas import JobCreate, JobDetail, JobOut, JobScanRequest, JobUpdate, StatusEventOut
+from app.schemas import JobCreate, JobDetail, JobMetric, JobOut, JobScanRequest, JobUpdate, StatusEventOut
 from app.utils.pdf import generate_label_pdf
 from app.utils.transitions import (
     STATUS_HOLDER_ROLE,
@@ -160,6 +160,28 @@ def list_jobs(
             raise HTTPException(status_code=400, detail="Invalid batch id") from exc
         query = query.join(BatchItem).filter(BatchItem.batch_id == batch_uuid)
     return query.order_by(desc(ItemJob.created_at)).limit(200).all()
+
+
+@router.get("/metrics", response_model=list[JobMetric])
+def job_metrics(
+    statuses: Optional[list[Status]] = Query(default=None),
+    from_date: Optional[datetime] = Query(default=None),
+    to_date: Optional[datetime] = Query(default=None),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY)),
+):
+    query = db.query(
+        ItemJob.current_status.label("status"),
+        func.count(ItemJob.id).label("count"),
+    )
+    if statuses:
+        query = query.filter(ItemJob.current_status.in_(statuses))
+    if from_date:
+        query = query.filter(ItemJob.created_at >= from_date)
+    if to_date:
+        query = query.filter(ItemJob.created_at <= to_date)
+    rows = query.group_by(ItemJob.current_status).all()
+    return [JobMetric(status=row.status, count=row.count) for row in rows]
 
 
 @router.get("/{job_id}", response_model=JobDetail)

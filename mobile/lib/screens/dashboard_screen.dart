@@ -95,6 +95,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
             // Metrics section
             SectionHeader(
+              key: const Key('dashboard_workload'),
               title: 'Workload',
               action: _loadError != null ? 'Retry' : null,
               onActionTap: _loadError != null ? _loadMetrics : null,
@@ -117,6 +118,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
             // Sync status
             SyncStatusCard(
+              key: const Key('dashboard_sync_status'),
               offlineJobs: _offlineJobs,
               pendingScans: _pendingScans,
               onSync: _syncQueue,
@@ -256,17 +258,28 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     try {
       final offlineJobs = await db.offlineJobCount().timeout(_metricsTimeout);
       final pendingScans = await db.pendingQueueCount().timeout(_metricsTimeout);
-      final entries = await Future.wait(metrics.map((metric) async {
+      final entries = <MapEntry<String, int?>>[];
+      Future<void> addMetricEntries(List<_MetricSpec> group, DateTime? fromDate) async {
+        if (group.isEmpty) return;
         try {
-          final jobs = await api.listJobs(
-            status: metric.status,
-            fromDate: metric.todayOnly ? _startOfToday() : null,
-          ).timeout(_metricsTimeout);
-          return MapEntry<String, int?>(metric.label, jobs.length);
+          final statuses = group.map((metric) => metric.status).toSet().toList();
+          final counts = await api
+              .jobMetrics(statuses: statuses, fromDate: fromDate)
+              .timeout(_metricsTimeout);
+          for (final metric in group) {
+            entries.add(MapEntry<String, int?>(metric.label, counts[metric.status] ?? 0));
+          }
         } catch (_) {
-          return MapEntry<String, int?>(metric.label, null);
+          for (final metric in group) {
+            entries.add(MapEntry<String, int?>(metric.label, null));
+          }
         }
-      }));
+      }
+
+      final todayMetrics = metrics.where((metric) => metric.todayOnly).toList();
+      final allMetrics = metrics.where((metric) => !metric.todayOnly).toList();
+      await addMetricEntries(todayMetrics, _startOfToday());
+      await addMetricEntries(allMetrics, null);
       if (!mounted) return;
       setState(() {
         _offlineJobs = offlineJobs;

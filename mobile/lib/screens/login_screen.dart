@@ -124,6 +124,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                                   // Username field
                                   MajesticTextField(
+                                    key: const Key('login_username'),
                                     controller: _usernameController,
                                     label: 'Username',
                                     prefixIcon: Icons.person_outline,
@@ -141,6 +142,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                                   // Password field
                                   PasswordField(
+                                    key: const Key('login_password'),
                                     controller: _passwordController,
                                     label: 'Password',
                                     textInputAction: TextInputAction.done,
@@ -163,6 +165,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                                   // Sign in button
                                   LoadingButton(
+                                    key: const Key('login_submit'),
                                     onPressed: _handleLogin,
                                     label: 'Sign In',
                                     icon: Icons.login,

@@ -153,6 +153,32 @@ class ApiClient {
     return response.data as List<dynamic>;
   }
 
+  Future<Map<String, int>> jobMetrics({
+    required List<String> statuses,
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    final params = <String, dynamic>{};
+    if (statuses.isNotEmpty) params['statuses'] = statuses;
+    if (fromDate != null) params['from_date'] = fromDate.toIso8601String();
+    if (toDate != null) params['to_date'] = toDate.toIso8601String();
+    final response = await _dio.get(
+      '/jobs/metrics',
+      queryParameters: params.isEmpty ? null : params,
+      options: Options(listFormat: ListFormat.multi),
+    );
+    final data = response.data as List<dynamic>;
+    final metrics = <String, int>{};
+    for (final entry in data) {
+      if (entry is! Map<String, dynamic>) continue;
+      final status = entry['status']?.toString();
+      final count = entry['count'];
+      if (status == null || count is! num) continue;
+      metrics[status] = count.toInt();
+    }
+    return metrics;
+  }
+
   Future<List<dynamic>> listBatches() async {
     final response = await _dio.get('/batches');
     return response.data as List<dynamic>;
