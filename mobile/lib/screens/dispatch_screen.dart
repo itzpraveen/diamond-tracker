@@ -21,13 +21,17 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   final _yearController = TextEditingController();
   List<dynamic> _batches = [];
   String? _selectedBatchId;
+  List<dynamic> _factories = [];
+  String? _selectedFactoryId;
   bool _loading = false;
   bool _creating = false;
+  bool _loadingFactories = false;
 
   @override
   void initState() {
     super.initState();
     _loadBatches();
+    _loadFactories();
 
     // Pre-fill with current month/year
     final now = DateTime.now();
@@ -69,6 +73,37 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _loadFactories() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _loadingFactories = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      final factories = await api.listFactories();
+      if (!mounted) return;
+      setState(() {
+        _factories = factories;
+        if (factories.isEmpty) {
+          _selectedFactoryId = null;
+        } else if (_selectedFactoryId == null ||
+            !_factories.any((factory) => factory['id'] == _selectedFactoryId)) {
+          _selectedFactoryId = factories.first['id'] as String?;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Failed to load factories: $error'),
+          backgroundColor: MajesticColors.danger,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _loadingFactories = false);
       }
     }
   }
@@ -128,6 +163,13 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       (batch) => batch['id'] == _selectedBatchId,
       orElse: () => null,
     );
+    String? selectedFactoryName;
+    for (final factory in _factories) {
+      if (factory['id'] == _selectedFactoryId) {
+        selectedFactoryName = factory['name']?.toString();
+        break;
+      }
+    }
 
     return MajesticScaffold(
       title: 'Dispatch',
@@ -234,10 +276,41 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                       onChanged: (value) => setState(() => _selectedBatchId = value),
                     ),
                     const SizedBox(height: 12),
+                    if (_loadingFactories)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else if (_factories.isEmpty)
+                      const EmptyState(
+                        icon: Icons.factory_outlined,
+                        title: 'No factories',
+                        subtitle: 'Add factories in settings to dispatch items',
+                      )
+                    else
+                      MajesticDropdown<String>(
+                        label: 'Select Factory',
+                        value: _selectedFactoryId,
+                        items: _factories
+                            .map(
+                              (factory) => DropdownMenuItem(
+                                value: factory['id'] as String,
+                                child: Text(factory['name'].toString()),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) => setState(() => _selectedFactoryId = value),
+                      ),
+                    const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: _loadBatches,
+                        onPressed: () {
+                          _loadBatches();
+                          _loadFactories();
+                        },
                         icon: const Icon(Icons.refresh, size: 18),
                         label: const Text('Refresh'),
                       ),
@@ -299,16 +372,29 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
             _SelectedBatchCard(
               batch: selectedBatch,
               isDark: isDark,
-              onScan: () => Navigator.push(
-                context,
-                MajesticPageRoute(
-                  page: ScanScreen(
-                    targetStatus: 'DISPATCHED_TO_FACTORY',
-                    batchId: _selectedBatchId,
-                    batchCode: selectedBatch['batch_code'] as String?,
+              factoryName: selectedFactoryName,
+              onScan: () {
+                if (_selectedFactoryId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Select a factory before dispatching'),
+                      backgroundColor: MajesticColors.danger,
+                    ),
+                  );
+                  return;
+                }
+                Navigator.push(
+                  context,
+                  MajesticPageRoute(
+                    page: ScanScreen(
+                      targetStatus: 'DISPATCHED_TO_FACTORY',
+                      batchId: _selectedBatchId,
+                      batchCode: selectedBatch['batch_code'] as String?,
+                      factoryId: _selectedFactoryId,
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
           ],
           const SizedBox(height: 20),
@@ -322,11 +408,13 @@ class _SelectedBatchCard extends StatelessWidget {
   const _SelectedBatchCard({
     required this.batch,
     required this.isDark,
+    required this.factoryName,
     required this.onScan,
   });
 
   final Map<String, dynamic> batch;
   final bool isDark;
+  final String? factoryName;
   final VoidCallback onScan;
 
   @override
@@ -382,6 +470,15 @@ class _SelectedBatchCard extends StatelessWidget {
             'Scan items to add to this batch and dispatch to factory',
             style: theme.textTheme.bodyMedium,
           ),
+          if (factoryName != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Factory: $factoryName',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: isDark ? MajesticColors.darkTextSecondary : MajesticColors.ink.withValues(alpha: 0.6),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,

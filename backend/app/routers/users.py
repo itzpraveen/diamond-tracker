@@ -25,7 +25,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), user=Depends
     new_user = User(
         username=payload.username,
         password_hash=hash_password(payload.password),
-        role=payload.role,
+        roles=payload.roles,
         is_active=True,
     )
     db.add(new_user)
@@ -48,8 +48,10 @@ def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db)
         target.password_hash = hash_password(payload.password)
     if payload.is_active is not None:
         target.is_active = payload.is_active
-    if payload.role:
-        target.role = payload.role
+    if payload.roles is not None:
+        if not payload.roles:
+            raise HTTPException(status_code=400, detail="At least one role is required")
+        target.roles = payload.roles
 
     db.commit()
     db.refresh(target)

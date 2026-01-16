@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
 
 const statuses = [
@@ -172,7 +173,7 @@ function CreateJobModal({
                 onChange={(e) => setFormData({ ...formData, item_source: e.target.value })}
               >
                 <option value="">Select source</option>
-                <option value="Old">Old (stock received)</option>
+                <option value="Stock">Stock (new purchase)</option>
                 <option value="Repair">Repair (customer)</option>
               </select>
             </div>
@@ -357,7 +358,7 @@ export default function ItemsPage() {
                   <option value="">All Statuses</option>
                   {statuses.map((s) => (
                     <option key={s} value={s}>
-                      {s.replace(/_/g, " ")}
+                      {statusLabel(s)}
                     </option>
                   ))}
                 </select>
@@ -414,7 +415,7 @@ export default function ItemsPage() {
                   </div>
                 </TD>
                 <TD>
-                  <Badge>{job.current_status}</Badge>
+                  <Badge>{statusLabel(job.current_status)}</Badge>
                 </TD>
                 <TD>{job.current_holder_role}</TD>
                 <TD>{job.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}</TD>

@@ -6,10 +6,11 @@ from app.utils.security import create_access_token, create_refresh_token, new_jt
 
 def test_access_token_payload():
     settings = get_settings()
-    token = create_access_token(subject="user123", role="Admin", expires_minutes=5)
+    token = create_access_token(subject="user123", roles=["Admin"], expires_minutes=5)
     payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
     assert payload["sub"] == "user123"
     assert payload["role"] == "Admin"
+    assert payload["roles"] == ["Admin"]
     assert payload["type"] == "access"
 
 

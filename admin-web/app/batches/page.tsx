@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate } from "@/lib/auth";
+import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
 
 function BatchDetailModal({
@@ -25,10 +26,16 @@ function BatchDetailModal({
   const [addError, setAddError] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
   const [expectedReturn, setExpectedReturn] = useState("");
+  const [selectedFactoryId, setSelectedFactoryId] = useState("");
 
   const batchQuery = useQuery({
     queryKey: ["batch", batchId],
     queryFn: () => request<any>(`/batches/${batchId}`)
+  });
+
+  const factoriesQuery = useQuery({
+    queryKey: ["factories"],
+    queryFn: () => request<any[]>("/factories")
   });
 
   const addItemMutation = useMutation({
@@ -38,6 +45,7 @@ function BatchDetailModal({
         body: JSON.stringify({
           to_status: "DISPATCHED_TO_FACTORY",
           batch_id: batchId,
+          factory_id: selectedFactoryId || undefined,
           remarks: "Dispatch scan"
         })
       }),
@@ -51,13 +59,22 @@ function BatchDetailModal({
     }
   });
 
+  const handleAddItem = () => {
+    if (!selectedFactoryId) {
+      setAddError("Select a factory before dispatching");
+      return;
+    }
+    addItemMutation.mutate();
+  };
+
   const dispatchMutation = useMutation({
     mutationFn: () =>
       request(`/batches/${batchId}/dispatch`, {
         method: "POST",
         body: JSON.stringify({
           dispatch_date: dispatchDate ? new Date(dispatchDate).toISOString() : null,
-          expected_return_date: expectedReturn ? new Date(expectedReturn).toISOString() : null
+          expected_return_date: expectedReturn ? new Date(expectedReturn).toISOString() : null,
+          factory_id: selectedFactoryId || undefined
         })
       }),
     onSuccess: () => batchQuery.refetch()
@@ -72,6 +89,11 @@ function BatchDetailModal({
   });
 
   const batch = batchQuery.data;
+  const factories = factoriesQuery.data || [];
+
+  useEffect(() => {
+    setSelectedFactoryId(batch?.factory_id || "");
+  }, [batch?.factory_id]);
 
   const manifestUrl = useMemo(() => {
     const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -89,7 +111,7 @@ function BatchDetailModal({
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-slate">Batch</p>
             <h2 className="text-lg font-semibold font-display">{batch?.batch_code}</h2>
-            <Badge className="mt-2">{batch?.status}</Badge>
+            <Badge className="mt-2">{statusLabel(batch?.status)}</Badge>
           </div>
           <button
             className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-slate transition hover:border-ink/30 hover:text-ink"
@@ -100,10 +122,14 @@ function BatchDetailModal({
         </div>
 
         {/* Batch Info */}
-        <div className="mb-4 grid grid-cols-3 gap-4 rounded-2xl border border-ink/10 bg-white/80 p-4">
+        <div className="mb-4 grid grid-cols-2 gap-4 rounded-2xl border border-ink/10 bg-white/80 p-4 md:grid-cols-4">
           <div>
             <p className="text-xs text-slate-500">Items</p>
             <p className="text-lg font-semibold">{batch?.item_count || 0}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Factory</p>
+            <p className="font-medium">{batch?.factory_name || "-"}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500">Dispatch Date</p>
@@ -125,6 +151,28 @@ function BatchDetailModal({
             <div className="mb-4 rounded-2xl border border-ink/10 bg-white/80 p-4">
               <p className="mb-2 text-xs uppercase tracking-[0.3em] text-slate">Add Item</p>
               <p className="text-sm font-semibold">Scan & Dispatch Item</p>
+              <div className="mt-3">
+                <label className="mb-1 block text-xs text-slate-600">Factory</label>
+                <select
+                  className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                  value={selectedFactoryId}
+                  onChange={(e) => {
+                    setSelectedFactoryId(e.target.value);
+                    setAddError("");
+                  }}
+                  disabled={Boolean(batch?.factory_id)}
+                >
+                  <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
+                  {factories.map((factory) => (
+                    <option key={factory.id} value={factory.id}>
+                      {factory.name}
+                    </option>
+                  ))}
+                </select>
+                {!factories.length && (
+                  <p className="mt-1 text-xs text-slate-500">Add factories in Settings to enable dispatch.</p>
+                )}
+              </div>
               <div className="flex gap-2">
                 <Input
                   placeholder="Scan Job ID (e.g., DJ-2026-000001)"
@@ -132,8 +180,8 @@ function BatchDetailModal({
                   onChange={(e) => setJobIdToAdd(e.target.value)}
                 />
                 <Button
-                  onClick={() => addItemMutation.mutate()}
-                  disabled={!jobIdToAdd.trim() || addItemMutation.isPending}
+                  onClick={handleAddItem}
+                  disabled={!jobIdToAdd.trim() || addItemMutation.isPending || !selectedFactoryId}
                 >
                   {addItemMutation.isPending ? "Scanning..." : "Scan"}
                 </Button>
@@ -150,6 +198,22 @@ function BatchDetailModal({
             <div className="mb-4 rounded-2xl border border-[#e8d0a5] bg-[#fff7eb] p-4">
               <p className="mb-2 text-xs uppercase tracking-[0.3em] text-[#8a5c1b]">Dispatch</p>
               <p className="text-sm font-semibold">Dispatch Batch</p>
+              <div className="mb-3">
+                <label className="mb-1 block text-xs text-slate-600">Factory</label>
+                <select
+                  className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                  value={selectedFactoryId}
+                  onChange={(e) => setSelectedFactoryId(e.target.value)}
+                  disabled={Boolean(batch?.factory_id)}
+                >
+                  <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
+                  {factories.map((factory) => (
+                    <option key={factory.id} value={factory.id}>
+                      {factory.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="mb-3 grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs text-slate-600">Dispatch Date</label>
@@ -170,7 +234,7 @@ function BatchDetailModal({
               </div>
               <Button
                 onClick={() => dispatchMutation.mutate()}
-                disabled={dispatchMutation.isPending}
+                disabled={dispatchMutation.isPending || !selectedFactoryId}
               >
                 {dispatchMutation.isPending ? "Dispatching..." : "Dispatch Batch"}
               </Button>
@@ -231,7 +295,7 @@ function BatchDetailModal({
                     <TD>{item.job_id}</TD>
                     <TD>{item.customer_name || "-"}</TD>
                     <TD>
-                      <Badge>{item.current_status}</Badge>
+                      <Badge>{statusLabel(item.current_status)}</Badge>
                     </TD>
                     <TD className="max-w-xs truncate">{item.item_description}</TD>
                   </TR>
@@ -302,6 +366,7 @@ export default function BatchesPage() {
             <TR>
               <TH>Batch</TH>
               <TH>Status</TH>
+              <TH>Factory</TH>
               <TH>Dispatch Date</TH>
               <TH>Expected Return</TH>
               <TH>Items</TH>
@@ -313,8 +378,9 @@ export default function BatchesPage() {
               <TR key={batch.id}>
                 <TD>{batch.batch_code}</TD>
                 <TD>
-                  <Badge>{batch.status}</Badge>
+                  <Badge>{statusLabel(batch.status)}</Badge>
                 </TD>
+                <TD>{batch.factory_name || "-"}</TD>
                 <TD>{batch.dispatch_date ? new Date(batch.dispatch_date).toLocaleDateString() : "-"}</TD>
                 <TD>{batch.expected_return_date ? new Date(batch.expected_return_date).toLocaleDateString() : "-"}</TD>
                 <TD>{batch.item_count}</TD>

@@ -107,12 +107,12 @@ function EditUserModal({
   onClose,
   onSuccess
 }: {
-  user: { id: string; username: string; role: string; is_active: boolean };
+  user: { id: string; username: string; roles: string[]; is_active: boolean };
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const { request } = useApi();
-  const [role, setRole] = useState(user.role);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>(user.roles ?? []);
   const [isActive, setIsActive] = useState(user.is_active);
   const [error, setError] = useState("");
 
@@ -120,7 +120,7 @@ function EditUserModal({
     mutationFn: () =>
       request(`/users/${user.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ role, is_active: isActive })
+        body: JSON.stringify({ roles: selectedRoles, is_active: isActive })
       }),
     onSuccess: () => {
       onSuccess();
@@ -130,6 +130,19 @@ function EditUserModal({
       setError("Failed to update user");
     }
   });
+
+  const toggleRole = (role: string) => {
+    setSelectedRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  };
+
+  const handleSubmit = () => {
+    setError("");
+    if (!selectedRoles.length) {
+      setError("Select at least one role");
+      return;
+    }
+    updateMutation.mutate();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -141,18 +154,19 @@ function EditUserModal({
         </p>
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Role</label>
-            <select
-              className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-            >
-              {roles.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Roles</label>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-ink/10 bg-white/90 p-3 text-sm">
+              {roles.map((role) => (
+                <label key={role} className="flex items-center gap-2 text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={selectedRoles.includes(role)}
+                    onChange={() => toggleRole(role)}
+                  />
+                  <span>{role}</span>
+                </label>
               ))}
-            </select>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-slate-700">Status</label>
@@ -182,7 +196,7 @@ function EditUserModal({
           >
             Cancel
           </button>
-          <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>
+          <Button onClick={handleSubmit} disabled={updateMutation.isPending}>
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </div>
@@ -195,9 +209,9 @@ export default function UsersPage() {
   const { request } = useApi();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("Purchase");
+  const [selectedRoles, setSelectedRoles] = useState<string[]>(["Purchase"]);
   const [resetUser, setResetUser] = useState<{ id: string; username: string } | null>(null);
-  const [editUser, setEditUser] = useState<{ id: string; username: string; role: string; is_active: boolean } | null>(null);
+  const [editUser, setEditUser] = useState<{ id: string; username: string; roles: string[]; is_active: boolean } | null>(null);
 
   const usersQuery = useQuery({
     queryKey: ["users"],
@@ -208,14 +222,19 @@ export default function UsersPage() {
     mutationFn: () =>
       request("/users", {
         method: "POST",
-        body: JSON.stringify({ username, password, role })
+        body: JSON.stringify({ username, password, roles: selectedRoles })
       }),
     onSuccess: () => {
       setUsername("");
       setPassword("");
+      setSelectedRoles(["Purchase"]);
       usersQuery.refetch();
     }
   });
+
+  const toggleRole = (role: string) => {
+    setSelectedRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  };
 
   return (
     <AppShell>
@@ -233,24 +252,30 @@ export default function UsersPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <select
-            className="rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          >
-            {roles.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-          <Button onClick={() => createMutation.mutate()}>Add User</Button>
+          <div className="rounded-2xl border border-ink/10 bg-white/90 px-3 py-2 text-xs">
+            <p className="mb-2 text-xs font-semibold text-slate-600">Roles</p>
+            <div className="grid grid-cols-2 gap-2 text-sm text-slate-700">
+              {roles.map((role) => (
+                <label key={role} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedRoles.includes(role)}
+                    onChange={() => toggleRole(role)}
+                  />
+                  <span>{role}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <Button onClick={() => createMutation.mutate()} disabled={!selectedRoles.length || createMutation.isPending}>
+            {createMutation.isPending ? "Adding..." : "Add User"}
+          </Button>
         </div>
         <Table>
           <THead>
             <TR>
               <TH>Username</TH>
-              <TH>Role</TH>
+              <TH>Roles</TH>
               <TH>Status</TH>
               <TH>Created</TH>
               <TH>Actions</TH>
@@ -260,14 +285,14 @@ export default function UsersPage() {
             {(usersQuery.data || []).map((user) => (
               <TR key={user.id}>
                 <TD>{user.username}</TD>
-                <TD>{user.role}</TD>
+                <TD>{(user.roles || []).join(", ") || "-"}</TD>
                 <TD>{user.is_active ? "Active" : "Inactive"}</TD>
                 <TD>{new Date(user.created_at).toLocaleDateString()}</TD>
                 <TD>
                   <div className="flex gap-3">
                     <button
                       className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-ink transition hover:border-ink/30"
-                      onClick={() => setEditUser({ id: user.id, username: user.username, role: user.role, is_active: user.is_active })}
+                      onClick={() => setEditUser({ id: user.id, username: user.username, roles: user.roles || [], is_active: user.is_active })}
                     >
                       Edit
                     </button>

@@ -47,9 +47,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final authState = ref.watch(authControllerProvider);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final role = authState.role;
-    final roleLabel = _roleLabel(role);
-    final metrics = _metricsForRole(role);
+    final roles = authState.roles;
+    final roleLabel = _rolesLabel(roles);
+    final metrics = _metricsForRoles(roles);
+    final roleActions = _roleActions(context, roles);
 
     return MajesticScaffold(
       title: 'Majestic Tracking',
@@ -129,7 +130,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               isPrimary: true,
               onTap: () => _navigateTo(
                 context,
-                role == Role.dispatch ? const DispatchScreen() : const ScanScreen(),
+                roles.length == 1 && roles.contains(Role.dispatch)
+                    ? const DispatchScreen()
+                    : const ScanScreen(),
               ),
             ),
             const SizedBox(height: 12),
@@ -150,9 +153,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 24),
 
             // Role-specific actions
-            if (_hasRoleActions(role)) ...[
+            if (roleActions.isNotEmpty) ...[
               const SectionHeader(title: 'Your Workspace'),
-              _buildRoleAction(context, role, isDark),
+              Column(
+                children: [
+                  for (final action in roleActions) ...[
+                    action,
+                    const SizedBox(height: 12),
+                  ]
+                ],
+              ),
             ],
             const SizedBox(height: 20),
           ],
@@ -161,16 +171,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
   }
 
-  bool _hasRoleActions(Role? role) {
-    return role == Role.purchase ||
-        role == Role.packing ||
-        role == Role.dispatch ||
-        role == Role.factory ||
-        role == Role.qcStock ||
-        role == Role.delivery;
+  List<Widget> _roleActions(BuildContext context, List<Role> roles) {
+    final actions = <Widget>[];
+    final seen = <Role>{};
+    for (final role in roles) {
+      if (seen.contains(role)) continue;
+      seen.add(role);
+      final action = _roleAction(context, role);
+      if (action != null) {
+        actions.add(action);
+      }
+    }
+    return actions;
   }
 
-  Widget _buildRoleAction(BuildContext context, Role? role, bool isDark) {
+  Widget? _roleAction(BuildContext context, Role role) {
     switch (role) {
       case Role.purchase:
         return RoleActionButton(
@@ -216,8 +231,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           color: MajesticColors.success,
           onTap: () => _navigateTo(context, const DeliveryScreen()),
         );
-      default:
-        return const SizedBox.shrink();
+      case Role.admin:
+        return null;
     }
   }
 
@@ -230,8 +245,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       _loadingMetrics = true;
       _loadError = null;
     });
-    final role = ref.read(authControllerProvider).role;
-    final metrics = _metricsForRole(role);
+    final roles = ref.read(authControllerProvider).roles;
+    final metrics = _metricsForRoles(roles);
     final db = ref.read(dbProvider);
     final api = ref.read(apiClientProvider);
     try {
@@ -297,7 +312,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return DateTime(now.year, now.month, now.day);
   }
 
-  List<_MetricSpec> _metricsForRole(Role? role) {
+  List<_MetricSpec> _metricsForRoles(List<Role> roles) {
+    final Map<String, _MetricSpec> metrics = {};
+    for (final role in roles) {
+      for (final metric in _metricsForRole(role)) {
+        metrics.putIfAbsent(metric.label, () => metric);
+      }
+    }
+    return metrics.values.toList();
+  }
+
+  List<_MetricSpec> _metricsForRole(Role role) {
     switch (role) {
       case Role.purchase:
         return const [
@@ -307,11 +332,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case Role.packing:
         return const [
           _MetricSpec(label: 'Awaiting pack', status: 'PURCHASED'),
-          _MetricSpec(label: 'Ready for dispatch', status: 'PACKED_READY'),
+          _MetricSpec(label: 'Ready for delivery', status: 'PACKED_READY'),
         ];
       case Role.dispatch:
         return const [
-          _MetricSpec(label: 'Ready for dispatch', status: 'PACKED_READY'),
+          _MetricSpec(label: 'Ready for delivery', status: 'PACKED_READY'),
           _MetricSpec(label: 'Dispatched', status: 'DISPATCHED_TO_FACTORY'),
         ];
       case Role.factory:
@@ -331,9 +356,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           _MetricSpec(label: 'Delivered', status: 'DELIVERED_TO_CUSTOMER'),
         ];
       case Role.admin:
-      case null:
         return const [
-          _MetricSpec(label: 'Ready to ship', status: 'PACKED_READY'),
+          _MetricSpec(label: 'Ready for delivery', status: 'PACKED_READY'),
           _MetricSpec(label: 'At factory', status: 'RECEIVED_AT_FACTORY'),
           _MetricSpec(label: 'Awaiting QC', status: 'RETURNED_FROM_FACTORY'),
           _MetricSpec(label: 'Delivering', status: 'HANDED_TO_DELIVERY'),
@@ -341,7 +365,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
-  String _roleLabel(Role? role) {
+  String _rolesLabel(List<Role> roles) {
+    if (roles.isEmpty) return 'Unassigned';
+    return roles.map(_roleLabel).join(', ');
+  }
+
+  String _roleLabel(Role role) {
     switch (role) {
       case Role.purchase:
         return 'Purchase';
@@ -357,8 +386,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return 'Delivery';
       case Role.admin:
         return 'Admin';
-      case null:
-        return 'Unassigned';
     }
   }
 }

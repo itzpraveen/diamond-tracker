@@ -47,7 +47,8 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User inactive")
 
-    access_token = create_access_token(subject=str(user.id), role=user.role.value)
+    roles = [role.value for role in user.roles]
+    access_token = create_access_token(subject=str(user.id), roles=roles)
     jti = new_jti()
     refresh_token = create_refresh_token(subject=str(user.id), jti=jti)
 
@@ -86,7 +87,8 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
     db.add(RefreshToken(jti=new_refresh_jti, user_id=user.id, expires_at=expires_at))
     db.commit()
 
-    access_token = create_access_token(subject=str(user.id), role=user.role.value)
+    roles = [role.value for role in user.roles]
+    access_token = create_access_token(subject=str(user.id), roles=roles)
     return TokenResponse(access_token=access_token, refresh_token=new_refresh)
 
 

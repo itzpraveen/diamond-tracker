@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, BatchItem, BatchStatus, Branch, ItemJob, Role, Status
+from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, ItemJob, Role, Status
 from app.schemas import BatchAddItem, BatchCreate, BatchDetail, BatchDispatchRequest, BatchOut, JobOut
 from app.utils.pdf import generate_manifest_pdf
 router = APIRouter(prefix="/batches", tags=["batches"])
@@ -39,6 +39,15 @@ def _get_job_by_code(db: Session, job_code: str) -> ItemJob:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+def _get_factory_by_uuid(db: Session, factory_id: uuid.UUID) -> Factory:
+    factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not factory:
+        raise HTTPException(status_code=404, detail="Factory not found")
+    if not factory.is_active:
+        raise HTTPException(status_code=400, detail="Factory is inactive")
+    return factory
 
 
 @router.post("", response_model=BatchOut)
@@ -95,6 +104,13 @@ def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(re
     items = db.query(BatchItem).filter(BatchItem.batch_id == batch.id).all()
     if not items:
         raise HTTPException(status_code=400, detail="Batch has no items")
+    if payload.factory_id:
+        factory = _get_factory_by_uuid(db, payload.factory_id)
+        if batch.factory_id and batch.factory_id != factory.id:
+            raise HTTPException(status_code=400, detail="Batch factory does not match")
+        batch.factory_id = factory.id
+    if not batch.factory_id:
+        raise HTTPException(status_code=400, detail="Factory id required before dispatch")
 
     jobs = [item.job for item in items]
     allowed_statuses = {

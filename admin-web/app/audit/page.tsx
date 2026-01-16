@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { useApi } from "@/lib/useApi";
+import { statusLabel } from "@/lib/status";
 import { useQuery } from "@tanstack/react-query";
 
 export default function AuditPage() {
@@ -37,8 +38,8 @@ export default function AuditPage() {
             {(auditQuery.data || []).map((event) => (
               <TR key={event.id}>
                 <TD>{event.job_id}</TD>
-                <TD>{event.from_status || "-"}</TD>
-                <TD>{event.to_status}</TD>
+                <TD>{statusLabel(event.from_status)}</TD>
+                <TD>{statusLabel(event.to_status)}</TD>
                 <TD>{event.scanned_by_role}</TD>
                 <TD>{new Date(event.timestamp).toLocaleString()}</TD>
                 <TD>

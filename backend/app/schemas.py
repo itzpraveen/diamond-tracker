@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models import BatchStatus, IncidentStatus, IncidentType, ItemSource, Role, Status
 
@@ -25,13 +25,22 @@ class RefreshRequest(BaseModel):
 class UserCreate(BaseModel):
     username: str
     password: str
-    role: Role
+    roles: List[Role] = Field(default_factory=list)
+    role: Optional[Role] = None
+
+    @model_validator(mode="after")
+    def ensure_roles(self) -> "UserCreate":
+        if not self.roles and self.role:
+            self.roles = [self.role]
+        if not self.roles:
+            raise ValueError("At least one role is required")
+        return self
 
 
 class UserOut(BaseModel):
     id: UUID
     username: str
-    role: Role
+    roles: List[Role]
     is_active: bool
     created_at: datetime
 
@@ -40,8 +49,15 @@ class UserOut(BaseModel):
 
 class UserUpdate(BaseModel):
     password: Optional[str] = None
+    roles: Optional[List[Role]] = None
     role: Optional[Role] = None
     is_active: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def ensure_roles(self) -> "UserUpdate":
+        if self.roles is None and self.role is not None:
+            self.roles = [self.role]
+        return self
 
 
 class PhotoMeta(BaseModel):
@@ -126,6 +142,7 @@ class JobScanRequest(BaseModel):
     device_id: Optional[str] = None
     location: Optional[str] = None
     batch_id: Optional[UUID] = None
+    factory_id: Optional[UUID] = None
     override_reason: Optional[str] = None
     incident_flag: bool = False
 
@@ -147,6 +164,8 @@ class BatchOut(BaseModel):
     batch_code: str
     branch_id: UUID
     created_by: UUID
+    factory_id: Optional[UUID] = None
+    factory_name: Optional[str] = None
     created_at: datetime
     dispatch_date: Optional[datetime] = None
     expected_return_date: Optional[datetime] = None
@@ -168,6 +187,7 @@ class BatchAddItem(BaseModel):
 class BatchDispatchRequest(BaseModel):
     dispatch_date: Optional[datetime] = None
     expected_return_date: Optional[datetime] = None
+    factory_id: Optional[UUID] = None
 
 
 class IncidentCreate(BaseModel):
@@ -223,3 +243,22 @@ class UserActivity(BaseModel):
     user_id: UUID
     username: str
     scans: int
+
+
+class FactoryCreate(BaseModel):
+    name: str
+    is_active: bool = True
+
+
+class FactoryUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class FactoryOut(BaseModel):
+    id: UUID
+    name: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

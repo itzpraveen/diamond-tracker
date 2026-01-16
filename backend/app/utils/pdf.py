@@ -232,8 +232,10 @@ def generate_manifest_pdf(batch: Batch, jobs: Iterable[ItemJob]) -> bytes:
     c.setFont("Helvetica", 10)
     c.drawString(20 * mm, 272 * mm, f"Status: {batch.status}")
     c.drawString(20 * mm, 266 * mm, f"Item Count: {batch.item_count}")
+    if batch.factory_name:
+        c.drawString(20 * mm, 260 * mm, f"Factory: {batch.factory_name}")
 
-    y = 250 * mm
+    y = 246 * mm
     c.setFont("Helvetica-Bold", 10)
     c.drawString(20 * mm, y, "Job ID")
     c.drawString(60 * mm, y, "Description")

@@ -7,7 +7,7 @@ String statusLabel(String? status) {
     case 'PURCHASED':
       return 'Purchased';
     case 'PACKED_READY':
-      return 'Packed & Ready';
+      return 'Ready to Delivery';
     case 'DISPATCHED_TO_FACTORY':
       return 'Dispatched to Factory';
     case 'RECEIVED_AT_FACTORY':

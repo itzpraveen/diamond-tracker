@@ -10,7 +10,8 @@ const REFRESH_KEY = "diamond_refresh_token";
 export type AuthContextValue = {
   accessToken: string | null;
   refreshToken: string | null;
-  role: string | null;
+  roles: string[];
+  primaryRole: string | null;
   isLoading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -19,8 +20,8 @@ export type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function decodeRole(token: string | null): string | null {
-  if (!token) return null;
+function decodeRoles(token: string | null): string[] {
+  if (!token) return [];
   try {
     const payload = token.split(".")[1];
     let normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
@@ -28,9 +29,15 @@ function decodeRole(token: string | null): string | null {
       normalized += "=";
     }
     const decoded = JSON.parse(atob(normalized));
-    return decoded.role || null;
+    if (Array.isArray(decoded.roles)) {
+      return decoded.roles.filter((role) => typeof role === "string");
+    }
+    if (decoded.role) {
+      return [decoded.role];
+    }
+    return [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -71,18 +78,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setRefreshToken(null);
   };
 
-  const value = useMemo(
-    () => ({
+  const value = useMemo(() => {
+    const decodedRoles = decodeRoles(accessToken);
+    return {
       accessToken,
       refreshToken,
-      role: decodeRole(accessToken),
+      roles: decodedRoles,
+      primaryRole: decodedRoles[0] ?? null,
       isLoading,
       login,
       logout,
       refresh
-    }),
-    [accessToken, refreshToken, isLoading]
-  );
+    };
+  }, [accessToken, refreshToken, isLoading]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -96,7 +104,7 @@ export function useAuth() {
 }
 
 export function RoleGate({ roles, children }: { roles: string[]; children: React.ReactNode }) {
-  const { role } = useAuth();
-  if (!role || !roles.includes(role)) return null;
+  const { roles: userRoles } = useAuth();
+  if (!userRoles.length || !roles.some((role) => userRoles.includes(role))) return null;
   return <>{children}</>;
 }

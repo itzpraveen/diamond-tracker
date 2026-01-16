@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, BatchItem, BatchStatus, Branch, ItemJob, JobEditAudit, Role, Status, StatusEvent, User
+from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, ItemJob, JobEditAudit, Role, Status, StatusEvent, User
 from app.schemas import JobCreate, JobDetail, JobOut, JobScanRequest, JobUpdate, StatusEventOut
 from app.utils.pdf import generate_label_pdf
 from app.utils.transitions import (
@@ -21,6 +21,7 @@ from app.utils.transitions import (
     requires_override,
     role_can_transition,
 )
+from app.utils.roles import select_role_for_action, select_role_for_status
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -82,8 +83,18 @@ def _get_batch_by_uuid(db: Session, batch_id: uuid.UUID) -> Batch:
     return batch
 
 
+def _get_factory_by_uuid(db: Session, factory_id: uuid.UUID) -> Factory:
+    factory = db.query(Factory).filter(Factory.id == factory_id).first()
+    if not factory:
+        raise HTTPException(status_code=404, detail="Factory not found")
+    if not factory.is_active:
+        raise HTTPException(status_code=400, detail="Factory is inactive")
+    return factory
+
+
 @router.post("", response_model=JobOut)
 def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Role.ADMIN)), db: Session = Depends(get_db)):
+    event_role = select_role_for_action(user.roles, preferred=[Role.PURCHASE])
     branch = _get_default_branch(db)
     job = ItemJob(
         job_id=_generate_job_id(db),
@@ -110,7 +121,7 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
         from_status=None,
         to_status=Status.PURCHASED,
         scanned_by_user_id=user.id,
-        scanned_by_role=user.role,
+        scanned_by_role=event_role,
         timestamp=datetime.now(timezone.utc),
         remarks="Job created",
     )
@@ -178,6 +189,7 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
     job = _get_job_by_code(db, job_id)
     if not payload.reason.strip():
         raise HTTPException(status_code=400, detail="Edit reason required")
+    event_role = select_role_for_action(user.roles, preferred=[Role.ADMIN])
     changes = {}
     for field in [
         "customer_name",
@@ -204,7 +216,7 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
     audit = JobEditAudit(
         job_id=job.id,
         edited_by_user_id=user.id,
-        edited_by_role=user.role,
+        edited_by_role=event_role,
         reason=payload.reason,
         changes=changes,
     )
@@ -220,6 +232,8 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
     current_status = job.current_status
     target_status = payload.to_status
     batch = None
+    event_role = select_role_for_status(user.roles, target_status)
+    is_admin = Role.ADMIN in user.roles
 
     if current_status == Status.ON_HOLD:
         previous_status = _get_previous_status_before_hold(db, job)
@@ -236,20 +250,28 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail="Item is in terminal status")
 
     if override_needed:
-        if user.role != Role.ADMIN:
+        if not is_admin:
             raise HTTPException(status_code=403, detail="Admin override required")
         if not payload.override_reason:
             raise HTTPException(status_code=400, detail="Override reason required")
+        event_role = Role.ADMIN
     else:
         if not is_allowed_transition(current_status, target_status):
             raise HTTPException(status_code=400, detail="Invalid transition")
-        if not role_can_transition(user.role, target_status):
+        if not any(role_can_transition(role, target_status) for role in user.roles):
             raise HTTPException(status_code=403, detail="Role cannot perform this transition")
 
     if target_status == Status.DISPATCHED_TO_FACTORY and not override_needed:
         if not payload.batch_id:
             raise HTTPException(status_code=400, detail="Batch id required for dispatch")
         batch = _get_batch_by_uuid(db, payload.batch_id)
+        if payload.factory_id:
+            factory = _get_factory_by_uuid(db, payload.factory_id)
+            if batch.factory_id and batch.factory_id != factory.id:
+                raise HTTPException(status_code=400, detail="Batch factory does not match")
+            batch.factory_id = factory.id
+        elif not batch.factory_id:
+            raise HTTPException(status_code=400, detail="Factory id required for dispatch")
         existing_item = (
             db.query(BatchItem)
             .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
@@ -261,6 +283,11 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         batch.item_count += 1
     elif target_status == Status.DISPATCHED_TO_FACTORY and payload.batch_id:
         batch = _get_batch_by_uuid(db, payload.batch_id)
+        if payload.factory_id:
+            factory = _get_factory_by_uuid(db, payload.factory_id)
+            if batch.factory_id and batch.factory_id != factory.id:
+                raise HTTPException(status_code=400, detail="Batch factory does not match")
+            batch.factory_id = factory.id
         existing_item = (
             db.query(BatchItem)
             .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
@@ -283,7 +310,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         from_status=current_status,
         to_status=target_status,
         scanned_by_user_id=user.id,
-        scanned_by_role=user.role,
+        scanned_by_role=event_role,
         timestamp=datetime.now(timezone.utc),
         location=payload.location,
         device_id=payload.device_id,
@@ -302,4 +329,21 @@ def get_label(job_id: str, db: Session = Depends(get_db), user=Depends(require_r
     job = _get_job_by_code(db, job_id)
     branch = db.query(Branch).filter(Branch.id == job.branch_id).first()
     pdf_bytes = generate_label_pdf(job, branch.name if branch else "Main Branch")
+    if job.current_status == Status.PURCHASED and (Role.PACKING in user.roles or Role.ADMIN in user.roles):
+        event_role = select_role_for_status(user.roles, Status.PACKED_READY)
+        job.current_status = Status.PACKED_READY
+        job.current_holder_role = STATUS_HOLDER_ROLE[Status.PACKED_READY]
+        job.current_holder_user_id = user.id
+        job.last_scan_at = datetime.now(timezone.utc)
+        event = StatusEvent(
+            job_id=job.id,
+            from_status=Status.PURCHASED,
+            to_status=Status.PACKED_READY,
+            scanned_by_user_id=user.id,
+            scanned_by_role=event_role,
+            timestamp=datetime.now(timezone.utc),
+            remarks="Label printed",
+        )
+        db.add(event)
+        db.commit()
     return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf")

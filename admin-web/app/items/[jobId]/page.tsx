@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate, useAuth } from "@/lib/auth";
 import { formatInr } from "@/lib/format";
+import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
 
 const statuses = [
@@ -142,7 +143,7 @@ function EditJobModal({
                 onChange={(e) => setFormData({ ...formData, item_source: e.target.value })}
               >
                 <option value="">Select source</option>
-                <option value="Old">Old (stock received)</option>
+                <option value="Stock">Stock (new purchase)</option>
                 <option value="Repair">Repair (customer)</option>
               </select>
             </div>
@@ -371,6 +372,7 @@ export default function ItemDetailPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+      jobQuery.refetch();
     } catch (error) {
       setDownloadError(error instanceof Error ? error.message : "Unable to download label");
     }
@@ -402,7 +404,7 @@ export default function ItemDetailPage() {
               <p className="text-xs uppercase tracking-[0.3em] text-slate">Item</p>
               <h1 className="text-2xl font-semibold font-display">{job?.job_id}</h1>
             </div>
-            <Badge>{job?.current_status}</Badge>
+            <Badge>{statusLabel(job?.current_status)}</Badge>
           </div>
 
           {/* Job Details */}
@@ -501,7 +503,7 @@ export default function ItemDetailPage() {
                 <option value="">Select status</option>
                 {statuses.map((s) => (
                   <option key={s} value={s}>
-                    {s.replace(/_/g, " ")}
+                    {statusLabel(s)}
                   </option>
                 ))}
               </select>
@@ -537,8 +539,8 @@ export default function ItemDetailPage() {
           <TBody>
             {job?.status_events?.map((event: any) => (
               <TR key={event.id}>
-                <TD>{event.from_status || "-"}</TD>
-                <TD>{event.to_status}</TD>
+                <TD>{statusLabel(event.from_status)}</TD>
+                <TD>{statusLabel(event.to_status)}</TD>
                 <TD>
                   {event.scanned_by_username
                     ? `${event.scanned_by_username} (${event.scanned_by_role})`

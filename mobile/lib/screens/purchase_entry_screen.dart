@@ -83,7 +83,7 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                       value: _itemSource,
                       hint: 'Select source',
                       items: const [
-                        DropdownMenuItem(value: 'Old', child: Text('Old (stock received)')),
+                        DropdownMenuItem(value: 'Stock', child: Text('Stock (new purchase)')),
                         DropdownMenuItem(value: 'Repair', child: Text('Repair (customer)')),
                       ],
                       enabled: !_submitting,

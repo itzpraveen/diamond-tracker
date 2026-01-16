@@ -15,11 +15,18 @@ import 'package:diamond_tracker_mobile/widgets/scanner_overlay.dart';
 import 'package:diamond_tracker_mobile/widgets/status_chip.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
-  const ScanScreen({super.key, this.targetStatus, this.batchId, this.batchCode});
+  const ScanScreen({
+    super.key,
+    this.targetStatus,
+    this.batchId,
+    this.batchCode,
+    this.factoryId,
+  });
 
   final String? targetStatus;
   final String? batchId;
   final String? batchCode;
+  final String? factoryId;
 
   @override
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
@@ -69,10 +76,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   @override
   Widget build(BuildContext context) {
-    final role = ref.watch(authControllerProvider).role;
+    final roles = ref.watch(authControllerProvider).roles;
     final currentStatus = _job?['current_status']?.toString();
-    final nextStatus = widget.targetStatus ?? _manualTargetStatus ?? _nextStatus(role, currentStatus);
-    final manualOptions = role == null ? <String>[] : _manualOptions(role);
+    final manualOptions = _manualOptions(roles, currentStatus);
+    final nextStatus = widget.targetStatus ?? _manualTargetStatus ?? _nextStatus(roles, currentStatus);
     final needsManual = widget.targetStatus == null && manualOptions.length > 1;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -133,7 +140,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
                   manualOptions: manualOptions,
                   manualTargetStatus: _manualTargetStatus,
                   onManualStatusChanged: (v) => setState(() => _manualTargetStatus = v),
-                  onConfirm: () => _confirmScan(context, role),
+                  onConfirm: () => _confirmScan(context, roles),
                   onRescan: _resetScan,
                   onReportIncident: () => Navigator.push(
                     context,
@@ -165,15 +172,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // Show sheet
     _sheetAnimController.forward();
 
-    final role = ref.read(authControllerProvider).role;
-    final manualOptions = role == null ? <String>[] : _manualOptions(role);
-    final needsManual = widget.targetStatus == null && manualOptions.length > 1;
+    final roles = ref.read(authControllerProvider).roles;
 
     try {
       if (_offline) {
         final repo = ref.read(jobRepositoryProvider);
         final localJob = await repo.getLocalJob(code);
-        final fallback = role == null ? null : _nextStatus(role, localJob?['current_status'] as String?);
+        final currentStatus = localJob?['current_status'] as String?;
+        final manualOptions = _manualOptions(roles, currentStatus);
+        final needsManual = widget.targetStatus == null && manualOptions.length > 1;
+        final fallback = _nextStatus(roles, currentStatus);
         setState(() {
           _job = localJob;
           if (needsManual && _manualTargetStatus == null && fallback != null) {
@@ -188,7 +196,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
       final api = ref.read(apiClientProvider);
       final job = await api.getJob(code);
-      final fallback = role == null ? null : _nextStatus(role, job['current_status'] as String?);
+      final currentStatus = job['current_status'] as String?;
+      final manualOptions = _manualOptions(roles, currentStatus);
+      final needsManual = widget.targetStatus == null && manualOptions.length > 1;
+      final fallback = _nextStatus(roles, currentStatus);
       setState(() {
         _job = job;
         if (needsManual && _manualTargetStatus == null && fallback != null) {
@@ -202,14 +213,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     }
   }
 
-  Future<void> _confirmScan(BuildContext context, Role? role) async {
+  Future<void> _confirmScan(BuildContext context, List<Role> roles) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     if (_scannedCode == null || _isSubmitting) return;
 
     final nextStatus = widget.targetStatus ??
         _manualTargetStatus ??
-        _nextStatus(role, _job?['current_status'] as String?);
+        _nextStatus(roles, _job?['current_status'] as String?);
 
     if (nextStatus == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -228,6 +239,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
     if (widget.batchId != null) {
       payload['batch_id'] = widget.batchId;
+    }
+    if (widget.factoryId != null) {
+      payload['factory_id'] = widget.factoryId;
     }
 
     try {
@@ -271,40 +285,39 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     });
   }
 
-  String? _nextStatus(Role? role, String? currentStatus) {
-    if (role == null) return null;
-    switch (role) {
-      case Role.packing:
-        return 'PACKED_READY';
-      case Role.dispatch:
-        return 'DISPATCHED_TO_FACTORY';
-      case Role.factory:
-        if (currentStatus == 'DISPATCHED_TO_FACTORY') return 'RECEIVED_AT_FACTORY';
-        if (currentStatus == 'RECEIVED_AT_FACTORY') return 'RETURNED_FROM_FACTORY';
-        return null;
-      case Role.qcStock:
-        if (currentStatus == 'RETURNED_FROM_FACTORY') return 'RECEIVED_AT_SHOP';
-        if (currentStatus == 'RECEIVED_AT_SHOP') return 'ADDED_TO_STOCK';
-        return null;
-      case Role.delivery:
-        return 'DELIVERED_TO_CUSTOMER';
-      case Role.purchase:
-        return null;
-      case Role.admin:
-        return null;
-    }
+  String? _nextStatus(List<Role> roles, String? currentStatus) {
+    final options = _manualOptions(roles, currentStatus);
+    if (options.isEmpty) return null;
+    return options.first;
   }
 
-  List<String> _manualOptions(Role role) {
+  List<String> _manualOptions(List<Role> roles, String? currentStatus) {
+    final options = <String>[];
+    for (final role in roles) {
+      final nextOptions = _roleOptions(role, currentStatus);
+      for (final option in nextOptions) {
+        if (!options.contains(option)) {
+          options.add(option);
+        }
+      }
+    }
+    return options;
+  }
+
+  List<String> _roleOptions(Role role, String? currentStatus) {
     switch (role) {
-      case Role.factory:
-        return ['RECEIVED_AT_FACTORY', 'RETURNED_FROM_FACTORY'];
-      case Role.qcStock:
-        return ['RECEIVED_AT_SHOP', 'ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'];
       case Role.packing:
         return ['PACKED_READY'];
       case Role.dispatch:
         return ['DISPATCHED_TO_FACTORY'];
+      case Role.factory:
+        if (currentStatus == 'DISPATCHED_TO_FACTORY') return ['RECEIVED_AT_FACTORY'];
+        if (currentStatus == 'RECEIVED_AT_FACTORY') return ['RETURNED_FROM_FACTORY'];
+        return ['RECEIVED_AT_FACTORY', 'RETURNED_FROM_FACTORY'];
+      case Role.qcStock:
+        if (currentStatus == 'RETURNED_FROM_FACTORY') return ['RECEIVED_AT_SHOP'];
+        if (currentStatus == 'RECEIVED_AT_SHOP') return ['ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'];
+        return ['RECEIVED_AT_SHOP', 'ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'];
       case Role.delivery:
         return ['DELIVERED_TO_CUSTOMER'];
       case Role.purchase:

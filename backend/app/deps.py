@@ -39,7 +39,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 
 def require_roles(*roles: Role) -> Callable:
     def role_dependency(user: User = Depends(get_current_user)) -> User:
-        if roles and user.role not in roles:
+        if roles and not any(role in user.roles for role in roles):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
         return user
 

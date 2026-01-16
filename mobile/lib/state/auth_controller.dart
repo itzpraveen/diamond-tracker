@@ -10,20 +10,20 @@ import 'package:diamond_tracker_mobile/state/providers.dart';
 class AuthState {
   const AuthState({
     required this.isAuthenticated,
-    this.role,
+    this.roles = const [],
     this.isLoading = false,
     this.error,
   });
 
   final bool isAuthenticated;
-  final Role? role;
+  final List<Role> roles;
   final bool isLoading;
   final String? error;
 
-  AuthState copyWith({bool? isAuthenticated, Role? role, bool? isLoading, String? error}) {
+  AuthState copyWith({bool? isAuthenticated, List<Role>? roles, bool? isLoading, String? error}) {
     return AuthState(
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
-      role: role ?? this.role,
+      roles: roles ?? this.roles,
       isLoading: isLoading ?? this.isLoading,
       error: error ?? this.error,
     );
@@ -42,7 +42,7 @@ class AuthController extends StateNotifier<AuthState> {
       state = const AuthState(isAuthenticated: false);
       return;
     }
-    state = AuthState(isAuthenticated: true, role: _roleFromToken(token));
+    state = AuthState(isAuthenticated: true, roles: _rolesFromToken(token));
   }
 
   Future<void> login(String username, String password) async {
@@ -50,7 +50,7 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       await _api.login(username, password);
       final token = await _storage.read(key: 'access_token');
-      state = AuthState(isAuthenticated: true, role: _roleFromToken(token ?? ''));
+      state = AuthState(isAuthenticated: true, roles: _rolesFromToken(token ?? ''));
     } catch (error) {
       state = AuthState(isAuthenticated: false, error: error.toString());
     }
@@ -61,16 +61,21 @@ class AuthController extends StateNotifier<AuthState> {
     state = const AuthState(isAuthenticated: false);
   }
 
-  Role? _roleFromToken(String token) {
-    if (token.isEmpty) return null;
+  List<Role> _rolesFromToken(String token) {
+    if (token.isEmpty) return [];
     try {
       final payload = token.split('.')[1];
       final normalized = base64.normalize(payload);
       final decoded = jsonDecode(utf8.decode(base64Url.decode(normalized))) as Map<String, dynamic>;
+      final roles = decoded['roles'];
+      if (roles is List) {
+        return roles.map((role) => _roleFromString(role.toString())).whereType<Role>().toList();
+      }
       final roleString = decoded['role'] as String?;
-      return _roleFromString(roleString ?? '');
+      final role = _roleFromString(roleString ?? '');
+      return role == null ? [] : [role];
     } catch (_) {
-      return null;
+      return [];
     }
   }
 

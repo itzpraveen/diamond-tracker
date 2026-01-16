@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -49,7 +49,7 @@ class Status(str, enum.Enum):
 
 
 class ItemSource(str, enum.Enum):
-    OLD = "Old"
+    STOCK = "Stock"
     REPAIR = "Repair"
 
 
@@ -94,7 +94,7 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[Role] = mapped_column(ROLE_ENUM)
+    roles: Mapped[list[Role]] = mapped_column(ARRAY(ROLE_ENUM), default=list, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -108,6 +108,17 @@ class Branch(Base):
     name: Mapped[str] = mapped_column(String(120), unique=True)
 
     jobs = relationship("ItemJob", back_populates="branch")
+
+
+class Factory(Base):
+    __tablename__ = "factories"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    batches = relationship("Batch", back_populates="factory")
 
 
 class ItemJob(Base):
@@ -164,6 +175,7 @@ class Batch(Base):
     batch_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     branch_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("branches.id"))
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
+    factory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("factories.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     dispatch_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     expected_return_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -172,6 +184,13 @@ class Batch(Base):
     manifest_pdf_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     items = relationship("BatchItem", back_populates="batch")
+    factory = relationship("Factory", back_populates="batches")
+
+    @property
+    def factory_name(self) -> str | None:
+        if not self.factory:
+            return None
+        return self.factory.name
 
 
 class BatchItem(Base):

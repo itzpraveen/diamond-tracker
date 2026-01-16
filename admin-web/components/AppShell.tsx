@@ -15,12 +15,14 @@ const links = [
   { href: "/incidents", label: "Incidents" },
   { href: "/reports", label: "Reports" },
   { href: "/audit", label: "Audit Log" },
-  { href: "/users", label: "Users" }
+  { href: "/users", label: "Users" },
+  { href: "/settings", label: "Settings" }
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { logout, role, accessToken } = useAuth();
+  const { logout, roles, primaryRole, accessToken } = useAuth();
   const pathname = usePathname();
+  const roleLabel = roles.length ? roles.join(", ") : primaryRole || "unknown";
 
   if (!accessToken) {
     return (
@@ -88,7 +90,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 );
               })}
             </div>
-            <p className="mt-3 text-xs text-slate">Role: {role || "unknown"}</p>
+            <p className="mt-3 text-xs text-slate">Role: {roleLabel}</p>
           </div>
         </div>
         <aside className="hidden w-64 flex-shrink-0 flex-col gap-6 lg:flex">
@@ -107,7 +109,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
             <div className="mt-4 rounded-2xl border border-ink/10 bg-white/70 px-3 py-2 text-xs text-slate">
-              Role: <span className="font-semibold text-ink">{role || "unknown"}</span>
+              Role: <span className="font-semibold text-ink">{roleLabel}</span>
             </div>
           </div>
           <nav className="flex flex-col gap-2 text-sm">
