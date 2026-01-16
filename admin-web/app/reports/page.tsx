@@ -4,6 +4,7 @@ import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { getApiBaseUrl } from "@/lib/apiBase";
 import { useApi } from "@/lib/useApi";
 import { useQuery } from "@tanstack/react-query";
 
@@ -15,7 +16,7 @@ export default function ReportsPage() {
   });
 
   const exportCsv = (type: string) => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const base = getApiBaseUrl();
     window.open(`${base}/reports/export.csv?type=${type}`, "_blank");
   };
 

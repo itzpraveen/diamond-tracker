@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate, useAuth } from "@/lib/auth";
 import { formatInr } from "@/lib/format";
+import { getApiBaseUrl } from "@/lib/apiBase";
 import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
 
@@ -30,7 +31,7 @@ const statuses = [
   "CANCELLED"
 ];
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = getApiBaseUrl();
 
 const resolvePhotoUrl = (url: string) => {
   if (!url) return "";

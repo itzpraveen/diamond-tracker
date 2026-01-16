@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { getApiBaseUrl } from "@/lib/apiBase";
 import { RoleGate } from "@/lib/auth";
 import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
@@ -96,7 +97,7 @@ function BatchDetailModal({
   }, [batch?.factory_id]);
 
   const manifestUrl = useMemo(() => {
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+    const base = getApiBaseUrl();
     return `${base}/batches/${batchId}/manifest.pdf`;
   }, [batchId]);
 

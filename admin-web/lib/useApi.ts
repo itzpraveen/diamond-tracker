@@ -3,8 +3,9 @@
 import { useCallback } from "react";
 
 import { useAuth } from "@/lib/auth";
+import { getApiBaseUrl } from "@/lib/apiBase";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = getApiBaseUrl();
 
 export function useApi() {
   const { accessToken, refresh, logout } = useAuth();

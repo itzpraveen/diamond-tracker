@@ -30,10 +30,7 @@ services:
       - key: S3_REGION
         value: us-east-1
       - key: CORS_ORIGINS
-        fromService:
-          name: diamond-admin-web
-          type: web
-          property: url
+        value: https://tracking.majesticjewellers.com,https://diamond-admin-web.onrender.com
       - key: PYTHON_VERSION
         value: 3.11.9
 
@@ -46,10 +43,7 @@ services:
     startCommand: npm run start
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        fromService:
-          name: diamond-backend
-          type: web
-          property: url
+        value: https://tracking-backend.majesticjewellers.com
       - key: NODE_VERSION
         value: 20.14.0
 

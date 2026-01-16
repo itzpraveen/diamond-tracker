@@ -73,7 +73,10 @@ class ApiClient {
   Future<void>? _refreshFuture;
 
   static String _defaultBaseUrl() {
-    const value = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:8000');
+    const value = String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'https://tracking-backend.majesticjewellers.com',
+    );
     return value;
   }
 
