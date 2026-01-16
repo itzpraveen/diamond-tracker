@@ -30,7 +30,7 @@ function decodeRoles(token: string | null): string[] {
     }
     const decoded = JSON.parse(atob(normalized));
     if (Array.isArray(decoded.roles)) {
-      return decoded.roles.filter((role) => typeof role === "string");
+      return decoded.roles.filter((role: unknown) => typeof role === "string");
     }
     if (decoded.role) {
       return [decoded.role];
