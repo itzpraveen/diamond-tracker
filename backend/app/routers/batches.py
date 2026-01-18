@@ -133,6 +133,9 @@ def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(re
         batch.dispatch_date = datetime.now(timezone.utc)
     if payload.expected_return_date:
         batch.expected_return_date = payload.expected_return_date
+        for job in jobs:
+            if job.target_return_date is None:
+                job.target_return_date = payload.expected_return_date
     db.commit()
     db.refresh(batch)
     return batch

@@ -1,5 +1,5 @@
 import csv
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from typing import List
 
@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import require_roles
 from app.models import Batch, Incident, ItemJob, Role, Status, StatusEvent, User
-from app.schemas import AgingBucket, BatchDelay, TurnaroundMetrics, UserActivity
+from app.schemas import AgingBucket, BatchDelay, JobOut, RepairTrackingReport, TurnaroundMetrics, UserActivity
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -133,6 +133,69 @@ def batch_delays(db: Session = Depends(get_db), user=Depends(require_roles(Role.
     return delays
 
 
+@router.get("/repair-targets", response_model=RepairTrackingReport)
+def repair_targets(
+    window_days: int = Query(default=3, ge=1, le=30),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.QC_STOCK)),
+):
+    now = datetime.now(timezone.utc)
+    window_end = now + timedelta(days=window_days)
+    base_query = db.query(ItemJob).filter(
+        ItemJob.target_return_date.isnot(None),
+        ItemJob.current_status != Status.CANCELLED,
+    )
+
+    not_returned_statuses = [
+        Status.PURCHASED,
+        Status.PACKED_READY,
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.ON_HOLD,
+    ]
+    overdue = (
+        base_query.filter(
+            ItemJob.target_return_date < now,
+            ItemJob.current_status.in_(not_returned_statuses),
+        )
+        .order_by(ItemJob.target_return_date)
+        .limit(200)
+        .all()
+    )
+    approaching = (
+        base_query.filter(
+            ItemJob.target_return_date >= now,
+            ItemJob.target_return_date <= window_end,
+            ItemJob.current_status.in_(not_returned_statuses),
+        )
+        .order_by(ItemJob.target_return_date)
+        .limit(200)
+        .all()
+    )
+
+    uncollected_statuses = [
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+    ]
+    uncollected = (
+        base_query.filter(
+            ItemJob.target_return_date < now,
+            ItemJob.current_status.in_(uncollected_statuses),
+        )
+        .order_by(ItemJob.target_return_date)
+        .limit(200)
+        .all()
+    )
+
+    return RepairTrackingReport(
+        overdue=[JobOut.model_validate(job) for job in overdue],
+        approaching=[JobOut.model_validate(job) for job in approaching],
+        uncollected=[JobOut.model_validate(job) for job in uncollected],
+    )
+
+
 @router.get("/user-activity", response_model=List[UserActivity])
 def user_activity(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN))):
     rows = (
@@ -151,9 +214,31 @@ def export_csv(type: str = Query(...), db: Session = Depends(get_db), user=Depen
     if type == "jobs":
         rows = db.query(ItemJob).execution_options(stream_results=True).yield_per(1000)
         generator = _stream_csv_rows(
-            ["job_id", "status", "holder_role", "created_at", "phone"],
+            [
+                "job_id",
+                "status",
+                "holder_role",
+                "created_at",
+                "phone",
+                "repair_type",
+                "target_return_date",
+                "factory",
+                "work_narration",
+                "item_source",
+            ],
             rows,
-            lambda job: [job.job_id, job.current_status, job.current_holder_role, job.created_at, job.customer_phone],
+            lambda job: [
+                job.job_id,
+                job.current_status,
+                job.current_holder_role,
+                job.created_at,
+                job.customer_phone,
+                job.repair_type,
+                job.target_return_date,
+                job.factory_name,
+                job.work_narration,
+                job.item_source,
+            ],
         )
     elif type == "incidents":
         rows = db.query(Incident).execution_options(stream_results=True).yield_per(1000)

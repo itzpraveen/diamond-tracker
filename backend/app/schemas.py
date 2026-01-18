@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models import BatchStatus, IncidentStatus, IncidentType, ItemSource, Role, Status
+from app.models import BatchStatus, IncidentStatus, IncidentType, ItemSource, RepairType, Role, Status
 
 
 class TokenResponse(BaseModel):
@@ -73,6 +73,10 @@ class JobCreate(BaseModel):
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
     item_source: ItemSource
+    repair_type: Optional[RepairType] = None
+    work_narration: Optional[str] = None
+    target_return_date: Optional[datetime] = None
+    factory_id: Optional[UUID] = None
     diamond_cent: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     notes: Optional[str] = None
@@ -85,6 +89,10 @@ class JobUpdate(BaseModel):
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
     item_source: Optional[ItemSource] = None
+    repair_type: Optional[RepairType] = None
+    work_narration: Optional[str] = None
+    target_return_date: Optional[datetime] = None
+    factory_id: Optional[UUID] = None
     diamond_cent: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     notes: Optional[str] = None
@@ -102,6 +110,11 @@ class JobOut(BaseModel):
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
     item_source: Optional[ItemSource] = None
+    repair_type: Optional[RepairType] = None
+    work_narration: Optional[str] = None
+    target_return_date: Optional[datetime] = None
+    factory_id: Optional[UUID] = None
+    factory_name: Optional[str] = None
     diamond_cent: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     current_status: Status
@@ -242,6 +255,12 @@ class BatchDelay(BaseModel):
     expected_return_date: Optional[datetime]
     dispatch_date: Optional[datetime]
     delay_days: float
+
+
+class RepairTrackingReport(BaseModel):
+    overdue: List[JobOut]
+    approaching: List[JobOut]
+    uncollected: List[JobOut]
 
 
 class UserActivity(BaseModel):

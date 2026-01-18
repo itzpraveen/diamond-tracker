@@ -279,6 +279,27 @@ class _JobDetailsCard extends StatelessWidget {
               value: _relativeTime(job['last_scan_at']?.toString()),
               isDark: isDark,
             ),
+            const SizedBox(height: 8),
+            _InfoRow(
+              icon: Icons.factory_outlined,
+              label: 'Factory',
+              value: job['factory_name']?.toString() ?? '-',
+              isDark: isDark,
+            ),
+            const SizedBox(height: 8),
+            _InfoRow(
+              icon: Icons.assignment_outlined,
+              label: 'Repair Type',
+              value: job['repair_type']?.toString() ?? '-',
+              isDark: isDark,
+            ),
+            const SizedBox(height: 8),
+            _InfoRow(
+              icon: Icons.event_outlined,
+              label: 'Target Return',
+              value: _formatDate(job['target_return_date']?.toString()),
+              isDark: isDark,
+            ),
             if (job['customer_name'] != null) ...[
               const SizedBox(height: 8),
               _InfoRow(
@@ -286,6 +307,18 @@ class _JobDetailsCard extends StatelessWidget {
                 label: 'Customer',
                 value: job['customer_name'].toString(),
                 isDark: isDark,
+              ),
+            ],
+            if (job['work_narration'] != null && job['work_narration'].toString().trim().isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Work Narration',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                job['work_narration'].toString(),
+                style: theme.textTheme.bodyMedium,
               ),
             ],
           ],
@@ -322,6 +355,15 @@ class _JobDetailsCard extends StatelessWidget {
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     if (diff.inDays < 30) return '${diff.inDays}d ago';
     return '${parsed.day}/${parsed.month}/${parsed.year}';
+  }
+
+  String _formatDate(String? timestamp) {
+    if (timestamp == null || timestamp.isEmpty) return '-';
+    final parsed = DateTime.tryParse(timestamp);
+    if (parsed == null) return timestamp;
+    final day = parsed.day.toString().padLeft(2, '0');
+    final month = parsed.month.toString().padLeft(2, '0');
+    return '$day/$month/${parsed.year}';
   }
 }
 

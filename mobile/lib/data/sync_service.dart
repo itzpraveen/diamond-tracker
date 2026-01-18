@@ -41,6 +41,10 @@ class SyncService {
           'diamond_cent': _asDouble(data['diamond_cent']),
           'purchase_value': _asDouble(data['purchase_value']),
           'item_source': data['item_source'],
+          'repair_type': data['repair_type'],
+          'work_narration': data['work_narration'],
+          'target_return_date': data['target_return_date'],
+          'factory_id': data['factory_id'],
           'notes': data['notes'],
           'photos': uploads,
         };

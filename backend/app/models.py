@@ -53,6 +53,11 @@ class ItemSource(str, enum.Enum):
     REPAIR = "Repair"
 
 
+class RepairType(str, enum.Enum):
+    CUSTOMER_REPAIR = "Customer Repair"
+    STOCK_REPAIR = "Stock Repair"
+
+
 class BatchStatus(str, enum.Enum):
     CREATED = "CREATED"
     DISPATCHED = "DISPATCHED"
@@ -77,6 +82,7 @@ class IncidentStatus(str, enum.Enum):
 ROLE_ENUM = Enum(Role, name="role", values_callable=lambda obj: [e.value for e in obj])
 STATUS_ENUM = Enum(Status, name="status", values_callable=lambda obj: [e.value for e in obj])
 ITEM_SOURCE_ENUM = Enum(ItemSource, name="item_source", values_callable=lambda obj: [e.value for e in obj])
+REPAIR_TYPE_ENUM = Enum(RepairType, name="repair_type", values_callable=lambda obj: [e.value for e in obj])
 BATCH_STATUS_ENUM = Enum(
     BatchStatus, name="batch_status", values_callable=lambda obj: [e.value for e in obj]
 )
@@ -119,6 +125,7 @@ class Factory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     batches = relationship("Batch", back_populates="factory")
+    jobs = relationship("ItemJob", back_populates="factory")
 
 
 class ItemJob(Base):
@@ -135,6 +142,10 @@ class ItemJob(Base):
     approximate_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     purchase_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     item_source: Mapped[ItemSource | None] = mapped_column(ITEM_SOURCE_ENUM, nullable=True)
+    repair_type: Mapped[RepairType | None] = mapped_column(REPAIR_TYPE_ENUM, nullable=True)
+    work_narration: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_return_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    factory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("factories.id"), nullable=True)
     diamond_cent: Mapped[float | None] = mapped_column(Float, nullable=True)
     photos: Mapped[list | None] = mapped_column(JSONB, default=list)
     current_status: Mapped[Status] = mapped_column(STATUS_ENUM)
@@ -145,8 +156,15 @@ class ItemJob(Base):
 
     branch = relationship("Branch", back_populates="jobs")
     current_holder = relationship("User", back_populates="jobs")
+    factory = relationship("Factory", back_populates="jobs")
     status_events = relationship("StatusEvent", back_populates="job", order_by="StatusEvent.timestamp")
     batch_items = relationship("BatchItem", back_populates="job")
+
+    @property
+    def factory_name(self) -> str | None:
+        if not self.factory:
+            return None
+        return self.factory.name
 
 
 class StatusEvent(Base):

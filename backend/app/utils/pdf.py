@@ -85,7 +85,7 @@ def _draw_image(c: canvas.Canvas, image: ImageReader, x: float, y: float, width:
     )
 
 
-def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
+def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None = None) -> bytes:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A7)
 
@@ -115,22 +115,35 @@ def generate_label_pdf(job: ItemJob, branch_name: str) -> bytes:
     c.setFillColor(colors.black)
 
     source = job.item_source.value if job.item_source else "-"
+    if job.repair_type:
+        repair_type = job.repair_type.value
+    elif job.item_source:
+        repair_type = "Customer Repair" if job.item_source.value == "Repair" else "Stock Repair"
+    else:
+        repair_type = "-"
+    factory_label = _normalize_text(factory_name or job.factory_name)
+    work_narration = _normalize_text(job.work_narration)
     weight = _format_number(job.approximate_weight, "g")
     value = _format_number(job.purchase_value)
     diamond = _format_number(job.diamond_cent, "c")
     customer = _normalize_text(job.customer_name)
     phone = _normalize_text(job.customer_phone)
     description = _normalize_text(job.item_description)
+    target_return = job.target_return_date.date().isoformat() if job.target_return_date else "-"
 
     left_fields = [
         ("Branch", _normalize_text(branch_name)),
-        ("Source", source),
+        ("Repair Type", repair_type),
+        ("Factory", factory_label),
+        ("Work", work_narration),
+        ("Item", description),
         ("Customer", customer),
         ("Phone", phone),
-        ("Item", description),
     ]
     right_fields = [
         ("Created", job.created_at.date().isoformat()),
+        ("Target Return", target_return),
+        ("Source", source),
         ("Weight", weight),
         ("Value (INR)", value),
         ("Diamond Cent", diamond),

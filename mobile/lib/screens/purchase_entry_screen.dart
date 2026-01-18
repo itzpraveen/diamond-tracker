@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
 
 import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
@@ -28,8 +29,15 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
   final _weightController = TextEditingController();
   final _diamondCentController = TextEditingController();
   final _valueController = TextEditingController();
+  final _workNarrationController = TextEditingController();
+  final _targetReturnController = TextEditingController();
   final List<XFile> _photos = [];
   String? _itemSource;
+  String? _repairType;
+  String? _factoryId;
+  DateTime? _targetReturnDate;
+  List<dynamic> _factories = [];
+  bool _loadingFactories = false;
   bool _offline = false;
   bool _submitting = false;
 
@@ -41,12 +49,21 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     _weightController.dispose();
     _diamondCentController.dispose();
     _valueController.dispose();
+    _workNarrationController.dispose();
+    _targetReturnController.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFactories();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeFactories = _factories.where((factory) => factory['is_active'] != false).toList();
 
     return MajesticScaffold(
       title: 'Purchase Entry',
@@ -87,13 +104,87 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                         DropdownMenuItem(value: 'Repair', child: Text('Repair (customer)')),
                       ],
                       enabled: !_submitting,
-                      onChanged: (value) => setState(() => _itemSource = value),
+                      onChanged: (value) => setState(() {
+                        _itemSource = value;
+                        if ((_repairType == null || _repairType!.isEmpty) && value != null) {
+                          _repairType = value == 'Repair' ? 'Customer Repair' : 'Stock Repair';
+                        }
+                      }),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'Select an item source';
                         }
                         return null;
                       },
+                    ),
+                    MajesticDropdown<String>(
+                      label: 'Repair Type',
+                      value: _repairType,
+                      hint: 'Select repair type',
+                      items: const [
+                        DropdownMenuItem(value: 'Customer Repair', child: Text('Customer Repair')),
+                        DropdownMenuItem(value: 'Stock Repair', child: Text('Stock Repair')),
+                      ],
+                      enabled: !_submitting,
+                      onChanged: (value) => setState(() => _repairType = value),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Select a repair type';
+                        }
+                        return null;
+                      },
+                    ),
+                    MajesticTextField(
+                      controller: _workNarrationController,
+                      label: 'Work Narration',
+                      hint: 'e.g. polishing',
+                      prefixIcon: Icons.build_outlined,
+                      enabled: !_submitting,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Work narration is required';
+                        }
+                        return null;
+                      },
+                    ),
+                    MajesticTextField(
+                      controller: _targetReturnController,
+                      label: 'Target Return Date',
+                      hint: 'Select a date',
+                      prefixIcon: Icons.event_outlined,
+                      readOnly: true,
+                      enabled: !_submitting,
+                      onSubmitted: (_) => _pickTargetReturnDate(context),
+                      onTap: () => _pickTargetReturnDate(context),
+                      onSuffixTap: () => _pickTargetReturnDate(context),
+                      suffixIcon: Icons.calendar_today_outlined,
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Target return date is required';
+                        }
+                        return null;
+                      },
+                    ),
+                    MajesticDropdown<String>(
+                      label: 'Factory',
+                      value: _factoryId,
+                      hint: _loadingFactories
+                          ? 'Loading factories...'
+                          : activeFactories.isEmpty
+                              ? 'No factories available'
+                              : 'Select factory (optional)',
+                      items: [
+                        if (activeFactories.isNotEmpty)
+                          const DropdownMenuItem(value: '', child: Text('No factory')),
+                        ...activeFactories.map(
+                          (factory) => DropdownMenuItem(
+                            value: factory['id']?.toString() ?? '',
+                            child: Text(factory['name']?.toString() ?? '-'),
+                          ),
+                        ),
+                      ],
+                      enabled: !_submitting && !_loadingFactories && activeFactories.isNotEmpty,
+                      onChanged: (value) => setState(() => _factoryId = value),
                     ),
                     Row(
                       children: [
@@ -219,6 +310,44 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     );
   }
 
+  Future<void> _loadFactories() async {
+    setState(() => _loadingFactories = true);
+    try {
+      final api = ref.read(apiClientProvider);
+      final factories = await api.listFactories();
+      if (!mounted) return;
+      setState(() => _factories = factories);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _factories = []);
+    } finally {
+      if (mounted) {
+        setState(() => _loadingFactories = false);
+      }
+    }
+  }
+
+  Future<void> _pickTargetReturnDate(BuildContext context) async {
+    if (_submitting) return;
+    final now = DateTime.now();
+    final firstDate = DateTime(now.year - 1, now.month, now.day);
+    final lastDate = DateTime(now.year + 2, now.month, now.day);
+    final initial = _targetReturnDate != null && _targetReturnDate!.isAfter(firstDate)
+        ? _targetReturnDate!
+        : now;
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isAfter(lastDate) ? now : initial,
+      firstDate: firstDate,
+      lastDate: lastDate,
+    );
+    if (picked == null) return;
+    setState(() {
+      _targetReturnDate = picked;
+      _targetReturnController.text = DateFormat('yyyy-MM-dd').format(picked);
+    });
+  }
+
   Future<void> _submit(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -233,6 +362,24 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     if (_itemSource == null || _itemSource!.isEmpty) {
       messenger.showSnackBar(
         const SnackBar(content: Text('Select an item source.')),
+      );
+      return;
+    }
+    if (_repairType == null || _repairType!.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Select a repair type.')),
+      );
+      return;
+    }
+    if (_workNarrationController.text.trim().isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Work narration is required.')),
+      );
+      return;
+    }
+    if (_targetReturnDate == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Select a target return date.')),
       );
       return;
     }
@@ -271,6 +418,10 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         'diamond_cent': diamondCent,
         'purchase_value': value,
         'item_source': _itemSource,
+        'repair_type': _repairType,
+        'work_narration': _workNarrationController.text.trim(),
+        'target_return_date': _targetReturnDate?.toIso8601String(),
+        'factory_id': (_factoryId ?? '').isEmpty ? null : _factoryId,
         'photos': uploads,
       });
       if (!context.mounted) return;
@@ -317,8 +468,13 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     _weightController.clear();
     _diamondCentController.clear();
     _valueController.clear();
+    _workNarrationController.clear();
+    _targetReturnController.clear();
     setState(() {
       _itemSource = null;
+      _repairType = null;
+      _factoryId = null;
+      _targetReturnDate = null;
       _photos.clear();
     });
   }
@@ -334,6 +490,10 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
       'diamond_cent': diamondCent,
       'purchase_value': value,
       'item_source': _itemSource,
+      'repair_type': _repairType,
+      'work_narration': _workNarrationController.text.trim(),
+      'target_return_date': _targetReturnDate?.toIso8601String(),
+      'factory_id': (_factoryId ?? '').isEmpty ? null : _factoryId,
       'current_status': 'OFFLINE_PENDING',
     };
     final job = await repo.createJob(payload, offline: true);

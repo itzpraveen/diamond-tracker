@@ -55,6 +55,10 @@ function EditJobModal({
     customer_phone: job.customer_phone || "",
     item_description: job.item_description || "",
     item_source: job.item_source || "",
+    repair_type: job.repair_type || "",
+    work_narration: job.work_narration || "",
+    target_return_date: job.target_return_date ? new Date(job.target_return_date).toISOString().slice(0, 10) : "",
+    factory_id: job.factory_id || "",
     diamond_cent: job.diamond_cent?.toString() || "",
     approximate_weight: job.approximate_weight?.toString() || "",
     purchase_value: job.purchase_value?.toString() || "",
@@ -62,6 +66,11 @@ function EditJobModal({
     reason: ""
   });
   const [error, setError] = useState("");
+  const factoriesQuery = useQuery({
+    queryKey: ["factories"],
+    queryFn: () => request<any[]>("/factories")
+  });
+  const factories = factoriesQuery.data || [];
 
   const updateMutation = useMutation({
     mutationFn: () =>
@@ -74,6 +83,10 @@ function EditJobModal({
           approximate_weight: formData.approximate_weight ? parseFloat(formData.approximate_weight) : null,
           purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null,
           item_source: formData.item_source || null,
+          repair_type: formData.repair_type || null,
+          work_narration: formData.work_narration || null,
+          target_return_date: formData.target_return_date ? new Date(formData.target_return_date).toISOString() : null,
+          factory_id: formData.factory_id || null,
           diamond_cent: formData.diamond_cent ? parseFloat(formData.diamond_cent) : null,
           notes: formData.notes || null,
           reason: formData.reason
@@ -141,7 +154,19 @@ function EditJobModal({
               <select
                 className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
                 value={formData.item_source}
-                onChange={(e) => setFormData({ ...formData, item_source: e.target.value })}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    item_source: e.target.value,
+                    repair_type:
+                      prev.repair_type ||
+                      (e.target.value === "Repair"
+                        ? "Customer Repair"
+                        : e.target.value === "Stock"
+                          ? "Stock Repair"
+                          : "")
+                  }))
+                }
               >
                 <option value="">Select source</option>
                 <option value="Stock">Stock (new purchase)</option>
@@ -156,6 +181,53 @@ function EditJobModal({
                 placeholder="Diamond cent"
                 value={formData.diamond_cent}
                 onChange={(e) => setFormData({ ...formData, diamond_cent: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Repair Type</label>
+              <select
+                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                value={formData.repair_type}
+                onChange={(e) => setFormData({ ...formData, repair_type: e.target.value })}
+              >
+                <option value="">Select repair type</option>
+                <option value="Customer Repair">Customer Repair</option>
+                <option value="Stock Repair">Stock Repair</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Target Return Date</label>
+              <Input
+                type="date"
+                value={formData.target_return_date}
+                onChange={(e) => setFormData({ ...formData, target_return_date: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Factory</label>
+              <select
+                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                value={formData.factory_id}
+                onChange={(e) => setFormData({ ...formData, factory_id: e.target.value })}
+              >
+                <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
+                {factories.map((factory) => (
+                  <option key={factory.id} value={factory.id}>
+                    {factory.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Work Narration</label>
+              <Input
+                placeholder="Work description"
+                value={formData.work_narration}
+                onChange={(e) => setFormData({ ...formData, work_narration: e.target.value })}
               />
             </div>
           </div>
@@ -423,6 +495,20 @@ export default function ItemDetailPage() {
               <p className="font-medium">{job?.item_source || "-"}</p>
             </div>
             <div>
+              <p className="text-xs text-slate-500">Repair Type</p>
+              <p className="font-medium">{job?.repair_type || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Factory</p>
+              <p className="font-medium">{job?.factory_name || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Target Return</p>
+              <p className="font-medium">
+                {job?.target_return_date ? new Date(job.target_return_date).toLocaleDateString() : "-"}
+              </p>
+            </div>
+            <div>
               <p className="text-xs text-slate-500">Diamond Cent</p>
               <p className="font-medium">
                 {job?.diamond_cent === null || job?.diamond_cent === undefined ? "-" : `${job.diamond_cent}c`}
@@ -440,6 +526,12 @@ export default function ItemDetailPage() {
               <p className="text-xs text-slate-500">Description</p>
               <p className="font-medium">{job?.item_description}</p>
             </div>
+            {job?.work_narration && (
+              <div className="md:col-span-2">
+                <p className="text-xs text-slate-500">Work Narration</p>
+                <p className="font-medium">{job.work_narration}</p>
+              </div>
+            )}
             {job?.notes && (
               <div className="md:col-span-2">
                 <p className="text-xs text-slate-500">Notes</p>

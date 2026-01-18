@@ -25,6 +25,7 @@ class MajesticTextField extends StatelessWidget {
     this.validator,
     this.onChanged,
     this.onSubmitted,
+    this.onTap,
     this.textInputAction,
     this.focusNode,
   });
@@ -47,6 +48,7 @@ class MajesticTextField extends StatelessWidget {
   final String? Function(String?)? validator;
   final void Function(String)? onChanged;
   final void Function(String)? onSubmitted;
+  final VoidCallback? onTap;
   final TextInputAction? textInputAction;
   final FocusNode? focusNode;
 
@@ -78,6 +80,7 @@ class MajesticTextField extends StatelessWidget {
       validator: validator,
       onChanged: onChanged,
       onFieldSubmitted: onSubmitted,
+      onTap: onTap,
       textInputAction: textInputAction,
       focusNode: focusNode,
     );

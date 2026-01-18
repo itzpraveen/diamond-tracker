@@ -9,7 +9,21 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, ItemJob, JobEditAudit, Role, Status, StatusEvent, User
+from app.models import (
+    Batch,
+    BatchItem,
+    BatchStatus,
+    Branch,
+    Factory,
+    ItemJob,
+    ItemSource,
+    JobEditAudit,
+    RepairType,
+    Role,
+    Status,
+    StatusEvent,
+    User,
+)
 from app.schemas import JobCreate, JobDetail, JobMetric, JobOut, JobScanRequest, JobUpdate, StatusEventOut
 from app.utils.pdf import generate_label_pdf
 from app.utils.transitions import (
@@ -96,6 +110,17 @@ def _get_factory_by_uuid(db: Session, factory_id: uuid.UUID) -> Factory:
 def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Role.ADMIN)), db: Session = Depends(get_db)):
     event_role = select_role_for_action(user.roles, preferred=[Role.PURCHASE])
     branch = _get_default_branch(db)
+    factory_id = None
+    if payload.factory_id:
+        factory = _get_factory_by_uuid(db, payload.factory_id)
+        factory_id = factory.id
+    repair_type = payload.repair_type
+    if repair_type is None and payload.item_source:
+        repair_type = (
+            RepairType.CUSTOMER_REPAIR
+            if payload.item_source == ItemSource.REPAIR
+            else RepairType.STOCK_REPAIR
+        )
     job = ItemJob(
         job_id=_generate_job_id(db),
         branch_id=branch.id,
@@ -105,6 +130,10 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
         approximate_weight=payload.approximate_weight,
         purchase_value=payload.purchase_value,
         item_source=payload.item_source,
+        repair_type=repair_type,
+        work_narration=payload.work_narration,
+        target_return_date=payload.target_return_date,
+        factory_id=factory_id,
         diamond_cent=payload.diamond_cent,
         photos=[photo.model_dump() for photo in payload.photos] if payload.photos else [],
         current_status=Status.PURCHASED,
@@ -212,6 +241,8 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
     if not payload.reason.strip():
         raise HTTPException(status_code=400, detail="Edit reason required")
     event_role = select_role_for_action(user.roles, preferred=[Role.ADMIN])
+    if payload.factory_id is not None:
+        _get_factory_by_uuid(db, payload.factory_id)
     changes = {}
     for field in [
         "customer_name",
@@ -220,6 +251,10 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
         "approximate_weight",
         "purchase_value",
         "item_source",
+        "repair_type",
+        "work_narration",
+        "target_return_date",
+        "factory_id",
         "diamond_cent",
         "photos",
         "notes",
@@ -303,6 +338,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
             raise HTTPException(status_code=400, detail="Item already in batch")
         db.add(BatchItem(batch_id=batch.id, job_id=job.id))
         batch.item_count += 1
+        job.factory_id = batch.factory_id
     elif target_status == Status.DISPATCHED_TO_FACTORY and payload.batch_id:
         batch = _get_batch_by_uuid(db, payload.batch_id)
         if payload.factory_id:
@@ -318,6 +354,8 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         if not existing_item:
             db.add(BatchItem(batch_id=batch.id, job_id=job.id))
             batch.item_count += 1
+        if batch.factory_id:
+            job.factory_id = batch.factory_id
 
     job.current_status = target_status
     job.current_holder_role = STATUS_HOLDER_ROLE[target_status]
@@ -350,7 +388,18 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
 def get_label(job_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY))):
     job = _get_job_by_code(db, job_id)
     branch = db.query(Branch).filter(Branch.id == job.branch_id).first()
-    pdf_bytes = generate_label_pdf(job, branch.name if branch else "Main Branch")
+    factory_name = job.factory_name
+    if not factory_name:
+        batch_item = (
+            db.query(BatchItem)
+            .join(Batch, BatchItem.batch_id == Batch.id)
+            .filter(BatchItem.job_id == job.id, Batch.factory_id.isnot(None))
+            .order_by(BatchItem.added_at.desc())
+            .first()
+        )
+        if batch_item and batch_item.batch and batch_item.batch.factory:
+            factory_name = batch_item.batch.factory.name
+    pdf_bytes = generate_label_pdf(job, branch.name if branch else "Main Branch", factory_name=factory_name)
     if job.current_status == Status.PURCHASED and (Role.PACKING in user.roles or Role.ADMIN in user.roles):
         event_role = select_role_for_status(user.roles, Status.PACKED_READY)
         job.current_status = Status.PACKED_READY
