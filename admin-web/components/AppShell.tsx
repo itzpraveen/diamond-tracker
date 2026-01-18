@@ -77,7 +77,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-4 mt-4">
           <div className="rounded-2xl border border-ink/10 bg-white/90 px-4 py-3 shadow-[var(--shadow-sm)] backdrop-blur">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <Link href="/" className="flex items-center gap-3 transition hover:opacity-80">
                 <Image
                   src="/logo.png"
                   alt="Majestic Tracking"
@@ -89,7 +89,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="text-[10px] uppercase tracking-[0.25em] text-slate">Majestic</p>
                   <p className="text-sm font-semibold font-display">Tracking</p>
                 </div>
-              </div>
+              </Link>
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-ink/10 bg-white/80 transition active:scale-95"
@@ -183,7 +183,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <aside className="hidden w-60 flex-shrink-0 lg:block">
           <div className="sticky top-8 space-y-5">
             <div className="rounded-[var(--radius-lg)] border border-ink/10 bg-white/90 p-5 shadow-[var(--shadow)] backdrop-blur">
-              <div className="flex items-center gap-3">
+              <Link href="/" className="flex items-center gap-3 transition hover:opacity-80">
                 <Image
                   src="/logo.png"
                   alt="Majestic Tracking"
@@ -195,7 +195,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="text-[10px] uppercase tracking-[0.3em] text-slate">Majestic</p>
                   <p className="text-lg font-semibold font-display">Tracking Ops</p>
                 </div>
-              </div>
+              </Link>
               <div className="mt-4 rounded-xl border border-ink/10 bg-sand/50 px-3 py-2 text-xs text-slate">
                 Role: <span className="font-semibold text-ink">{roleLabel}</span>
               </div>
