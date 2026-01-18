@@ -6,11 +6,11 @@ import Link from "next/link";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import AppShell from "@/components/AppShell";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
+import { Input, Select, Textarea } from "@/components/ui/input";
+import { Table, TBody, TD, TH, THead, TR, MobileTableCard, MobileTableRow } from "@/components/ui/table";
 import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
 
@@ -156,17 +156,19 @@ function CreateJobModal({
   const factories = factoriesQuery.data || [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-3xl bg-white/95 p-6 shadow-[var(--shadow)]">
-        <div className="mb-4">
-          <p className="text-xs uppercase tracking-[0.3em] text-slate">New Job</p>
-          <h2 className="mt-2 text-lg font-semibold font-display">Create New Job</h2>
-          <p className="mt-2 text-sm text-slate">Capture item details and start the chain of custody.</p>
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div className="fixed inset-0 bg-ink/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white/98 p-5 shadow-[var(--shadow-lg)] sm:max-w-lg sm:rounded-2xl sm:p-6">
+        <div className="mb-5">
+          <CardLabel>New Job</CardLabel>
+          <CardTitle className="mt-1">Create New Job</CardTitle>
+          <CardDescription>Capture item details and start the chain of custody.</CardDescription>
         </div>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Customer Name</label>
+              <label className="mb-1.5 block text-sm font-medium">Customer Name</label>
               <Input
                 placeholder="Customer name"
                 value={formData.customer_name}
@@ -174,7 +176,7 @@ function CreateJobModal({
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Phone</label>
+              <label className="mb-1.5 block text-sm font-medium">Phone</label>
               <Input
                 placeholder="Phone number"
                 value={formData.customer_phone}
@@ -182,19 +184,24 @@ function CreateJobModal({
               />
             </div>
           </div>
+
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Item Description *</label>
+            <label className="mb-1.5 block text-sm font-medium">
+              Item Description <span className="text-red-500">*</span>
+            </label>
             <Input
               placeholder="Describe the item"
               value={formData.item_description}
               onChange={(e) => setFormData({ ...formData, item_description: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Item Source *</label>
-              <select
-                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+              <label className="mb-1.5 block text-sm font-medium">
+                Item Source <span className="text-red-500">*</span>
+              </label>
+              <Select
                 value={formData.item_source}
                 onChange={(e) =>
                   setFormData((prev) => ({
@@ -213,10 +220,10 @@ function CreateJobModal({
                 <option value="">Select source</option>
                 <option value="Stock">Stock (new purchase)</option>
                 <option value="Repair">Repair (customer)</option>
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Diamond Cent</label>
+              <label className="mb-1.5 block text-sm font-medium">Diamond Cent</label>
               <Input
                 type="number"
                 step="0.01"
@@ -226,21 +233,25 @@ function CreateJobModal({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Repair Type *</label>
-              <select
-                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+              <label className="mb-1.5 block text-sm font-medium">
+                Repair Type <span className="text-red-500">*</span>
+              </label>
+              <Select
                 value={formData.repair_type}
                 onChange={(e) => setFormData({ ...formData, repair_type: e.target.value })}
               >
                 <option value="">Select repair type</option>
                 <option value="Customer Repair">Customer Repair</option>
                 <option value="Stock Repair">Stock Repair</option>
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Target Return Date *</label>
+              <label className="mb-1.5 block text-sm font-medium">
+                Target Return Date <span className="text-red-500">*</span>
+              </label>
               <Input
                 type="date"
                 value={formData.target_return_date}
@@ -248,11 +259,11 @@ function CreateJobModal({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Factory</label>
-              <select
-                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+              <label className="mb-1.5 block text-sm font-medium">Factory</label>
+              <Select
                 value={formData.factory_id}
                 onChange={(e) => setFormData({ ...formData, factory_id: e.target.value })}
               >
@@ -262,10 +273,12 @@ function CreateJobModal({
                     {factory.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Work Narration *</label>
+              <label className="mb-1.5 block text-sm font-medium">
+                Work Narration <span className="text-red-500">*</span>
+              </label>
               <Input
                 placeholder="e.g. polishing"
                 value={formData.work_narration}
@@ -273,9 +286,10 @@ function CreateJobModal({
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">Weight (g)</label>
+              <label className="mb-1.5 block text-sm font-medium">Weight (g)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -285,7 +299,7 @@ function CreateJobModal({
               />
             </div>
             <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Purchase Value (INR)</label>
+              <label className="mb-1.5 block text-sm font-medium">Purchase Value (INR)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -295,51 +309,65 @@ function CreateJobModal({
               />
             </div>
           </div>
+
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Notes</label>
-            <textarea
-              className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+            <label className="mb-1.5 block text-sm font-medium">Notes</label>
+            <Textarea
               rows={3}
               placeholder="Additional notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
             />
           </div>
+
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Item Photos *</label>
-            <input
-              className="w-full text-sm"
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handlePhotoChange}
-            />
+            <label className="mb-1.5 block text-sm font-medium">
+              Item Photos <span className="text-red-500">*</span>
+            </label>
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink/15 bg-sand/30 px-4 py-6 text-sm text-slate transition hover:border-ink/25 hover:bg-sand/50">
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              <span>Add photos</span>
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handlePhotoChange}
+              />
+            </label>
             {photoPreviews.length > 0 && (
-              <div className="mt-3 grid grid-cols-3 gap-2">
+              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {photoPreviews.map((src, index) => (
-                  <div key={src} className="relative">
-                    <img src={src} alt="Preview" className="h-20 w-full rounded-xl object-cover" />
+                  <div key={src} className="group relative aspect-square">
+                    <img src={src} alt="Preview" className="h-full w-full rounded-lg object-cover" />
                     <button
                       type="button"
-                      className="absolute right-1 top-1 rounded-full bg-white/80 px-2 text-xs"
+                      className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-ink text-white opacity-0 transition group-hover:opacity-100"
                       onClick={() => removePhoto(index)}
                     >
-                      x
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
                     </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
+
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
         </div>
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            className="rounded-full border border-ink/10 px-4 py-2 text-xs font-semibold text-slate transition hover:border-ink/30 hover:text-ink"
-            onClick={onClose}
-          >
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button variant="outline" onClick={onClose}>
             Cancel
-          </button>
+          </Button>
           <Button onClick={handleSubmit} disabled={createMutation.isPending}>
             {createMutation.isPending ? "Creating..." : "Create Job"}
           </Button>
@@ -393,18 +421,19 @@ export default function ItemsPage() {
 
   return (
     <AppShell>
-      <Card className="space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <Card className="space-y-5">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate">Items</p>
-            <h1 className="text-2xl font-semibold font-display">Search & Track</h1>
-            <p className="mt-2 text-sm text-slate">Find, filter, and open every item record in seconds.</p>
+            <CardLabel>Items</CardLabel>
+            <CardTitle>Search & Track</CardTitle>
+            <CardDescription>Find, filter, and open every item record in seconds.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setShowFilters(!showFilters)}>
-              {showFilters ? "Hide Filters" : "Show Filters"}
+            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
+              {showFilters ? "Hide Filters" : "Filters"}
             </Button>
-            <Button onClick={() => setShowCreateModal(true)}>
+            <Button size="sm" onClick={() => setShowCreateModal(true)}>
               + Create Job
             </Button>
           </div>
@@ -412,21 +441,21 @@ export default function ItemsPage() {
 
         {/* Filters Section */}
         {showFilters && (
-          <div className="rounded-3xl border border-ink/10 bg-white/80 p-4">
+          <div className="rounded-xl border border-ink/8 bg-sand/30 p-4">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-xs uppercase tracking-[0.3em] text-slate">Filters</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate">Filters</h3>
               {hasFilters && (
                 <button
-                  className="text-xs font-semibold text-ink hover:underline"
+                  className="text-xs font-medium text-forest hover:underline"
                   onClick={clearFilters}
                 >
                   Clear all
                 </button>
               )}
             </div>
-            <div className="grid gap-3 md:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <div>
-                <label className="mb-1 block text-xs text-slate-600">Job ID</label>
+                <label className="mb-1 block text-xs font-medium text-slate">Job ID</label>
                 <Input
                   placeholder="Search job ID"
                   value={jobIdFilter}
@@ -434,9 +463,8 @@ export default function ItemsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-600">Status</label>
-                <select
-                  className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                <label className="mb-1 block text-xs font-medium text-slate">Status</label>
+                <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
@@ -446,10 +474,10 @@ export default function ItemsPage() {
                       {statusLabel(s)}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-600">Phone</label>
+                <label className="mb-1 block text-xs font-medium text-slate">Phone</label>
                 <Input
                   placeholder="Customer phone"
                   value={phoneFilter}
@@ -457,7 +485,7 @@ export default function ItemsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-600">From Date</label>
+                <label className="mb-1 block text-xs font-medium text-slate">From Date</label>
                 <Input
                   type="date"
                   value={fromDate}
@@ -465,7 +493,7 @@ export default function ItemsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-600">To Date</label>
+                <label className="mb-1 block text-xs font-medium text-slate">To Date</label>
                 <Input
                   type="date"
                   value={toDate}
@@ -476,44 +504,81 @@ export default function ItemsPage() {
           </div>
         )}
 
-        <Table>
-          <THead>
-            <TR>
-              <TH>Job ID</TH>
-              <TH>Customer</TH>
-              <TH>Status</TH>
-              <TH>Holder</TH>
-              <TH>Last Scan</TH>
-              <TH>Action</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {jobs.map((job) => (
-              <TR key={job.job_id}>
-                <TD>{job.job_id}</TD>
-                <TD>
-                  <div>
-                    <div className="font-medium">{job.customer_name || "-"}</div>
-                    {job.customer_phone && (
-                      <div className="text-xs text-slate-500">{job.customer_phone}</div>
-                    )}
-                  </div>
-                </TD>
-                <TD>
-                  <Badge>{statusLabel(job.current_status)}</Badge>
-                </TD>
-                <TD>{job.current_holder_role}</TD>
-                <TD>{job.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}</TD>
-                <TD>
-                  <Link className="rounded-full border border-ink/10 bg-white px-3 py-1 text-xs font-semibold text-ink transition hover:border-ink/30" href={`/items/${job.job_id}`}>
-                    View
-                  </Link>
-                </TD>
+        {/* Desktop Table */}
+        <div className="hidden sm:block">
+          <Table>
+            <THead>
+              <TR>
+                <TH>Job ID</TH>
+                <TH>Customer</TH>
+                <TH>Status</TH>
+                <TH>Holder</TH>
+                <TH>Last Scan</TH>
+                <TH>Action</TH>
               </TR>
-            ))}
-          </TBody>
-        </Table>
-        {!jobs.length && <p className="text-sm text-slate">No matching jobs.</p>}
+            </THead>
+            <TBody>
+              {jobs.map((job) => (
+                <TR key={job.job_id}>
+                  <TD className="font-medium">{job.job_id}</TD>
+                  <TD>
+                    <div>
+                      <div className="font-medium">{job.customer_name || "-"}</div>
+                      {job.customer_phone && (
+                        <div className="text-xs text-slate">{job.customer_phone}</div>
+                      )}
+                    </div>
+                  </TD>
+                  <TD>
+                    <StatusBadge status={job.current_status} />
+                  </TD>
+                  <TD className="text-slate">{job.current_holder_role || "-"}</TD>
+                  <TD className="text-slate">
+                    {job.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}
+                  </TD>
+                  <TD>
+                    <Link href={`/items/${job.job_id}`}>
+                      <Button variant="outline" size="sm">View</Button>
+                    </Link>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </div>
+
+        {/* Mobile Cards */}
+        <div className="space-y-3 sm:hidden">
+          {jobs.map((job) => (
+            <MobileTableCard key={job.job_id}>
+              <div className="mb-3 flex items-start justify-between">
+                <div>
+                  <p className="font-semibold">{job.job_id}</p>
+                  <p className="text-sm text-slate">{job.customer_name || "No customer"}</p>
+                </div>
+                <StatusBadge status={job.current_status} size="sm" />
+              </div>
+              <div className="space-y-1 border-t border-ink/6 pt-3">
+                <MobileTableRow label="Phone">{job.customer_phone || "-"}</MobileTableRow>
+                <MobileTableRow label="Holder">{job.current_holder_role || "-"}</MobileTableRow>
+                <MobileTableRow label="Last Scan">
+                  {job.last_scan_at ? new Date(job.last_scan_at).toLocaleDateString() : "-"}
+                </MobileTableRow>
+              </div>
+              <div className="mt-3 border-t border-ink/6 pt-3">
+                <Link href={`/items/${job.job_id}`}>
+                  <Button variant="outline" size="sm" className="w-full">View Details</Button>
+                </Link>
+              </div>
+            </MobileTableCard>
+          ))}
+        </div>
+
+        {!jobs.length && (
+          <div className="py-12 text-center">
+            <p className="text-slate">No matching jobs found.</p>
+          </div>
+        )}
       </Card>
 
       {showCreateModal && (
