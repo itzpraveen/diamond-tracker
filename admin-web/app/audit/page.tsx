@@ -44,7 +44,7 @@ export default function AuditPage() {
                 <TD>{new Date(event.timestamp).toLocaleString()}</TD>
                 <TD>
                   {event.override_reason ? (
-                    <Badge tone="warning">{event.override_reason}</Badge>
+                    <Badge variant="warning">{event.override_reason}</Badge>
                   ) : (
                     "-"
                   )}

@@ -483,7 +483,7 @@ export default function UsersPage() {
                         </div>
                       </TD>
                       <TD>
-                        <Badge tone={user.is_active ? "success" : "warning"}>
+                        <Badge variant={user.is_active ? "success" : "warning"}>
                           {user.is_active ? "Active" : "Inactive"}
                         </Badge>
                       </TD>

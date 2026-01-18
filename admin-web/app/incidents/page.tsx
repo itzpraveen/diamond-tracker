@@ -51,7 +51,7 @@ export default function IncidentsPage() {
                 <TD>{incident.id.slice(0, 8)}</TD>
                 <TD>{incident.type}</TD>
                 <TD>
-                  <Badge tone={incident.status === "RESOLVED" ? "success" : "warning"}>{incident.status}</Badge>
+                  <Badge variant={incident.status === "RESOLVED" ? "success" : "warning"}>{incident.status}</Badge>
                 </TD>
                 <TD className="max-w-xs truncate">{incident.description}</TD>
                 <TD>

@@ -42,6 +42,7 @@ export function Badge({
 type StatusBadgeProps = {
   status: string;
   className?: string;
+  size?: "sm" | "md";
 };
 
 const statusVariants: Record<string, BadgeProps["variant"]> = {
@@ -61,7 +62,7 @@ const statusVariants: Record<string, BadgeProps["variant"]> = {
   CLOSED: "success"
 };
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
+export function StatusBadge({ status, className, size }: StatusBadgeProps) {
   const variant = statusVariants[status] || "default";
   const label = status
     .replace(/_/g, " ")
@@ -69,7 +70,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
-    <Badge variant={variant} className={className}>
+    <Badge variant={variant} size={size} className={className}>
       {label}
     </Badge>
   );

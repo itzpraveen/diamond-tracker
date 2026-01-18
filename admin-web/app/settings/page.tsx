@@ -195,7 +195,7 @@ export default function SettingsPage() {
                 <TR key={factory.id}>
                   <TD>{factory.name}</TD>
                   <TD>
-                    <Badge tone={factory.is_active ? "success" : "warning"}>
+                    <Badge variant={factory.is_active ? "success" : "warning"}>
                       {factory.is_active ? "Active" : "Inactive"}
                     </Badge>
                   </TD>
