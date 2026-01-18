@@ -107,8 +107,8 @@ function BatchDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <div className="fixed inset-0 bg-ink/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white/98 p-5 shadow-[var(--shadow-lg)] sm:max-w-3xl sm:rounded-2xl sm:p-6">
+      <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-[var(--shadow-lg)] sm:max-w-3xl sm:rounded-2xl sm:p-6">
         {/* Header */}
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
