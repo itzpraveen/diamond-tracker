@@ -478,31 +478,40 @@ export default function ItemsPage() {
     const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
     if (!selectedJobIds.length) return;
     setDownloadError("");
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setDownloadError("Pop-up blocked. Allow pop-ups to print labels.");
+      return;
+    }
+    printWindow.document.write(
+      `<html><head><title>Print Labels</title><style>html,body{margin:0;height:100%;}body{font-family:system-ui, sans-serif;display:flex;align-items:center;justify-content:center;color:#4b5563;}iframe{border:0;width:100%;height:100%;}</style></head><body><div id="print-status">Preparing labels...</div></body></html>`
+    );
+    printWindow.document.close();
     try {
       const blob = await requestBlob("/jobs/labels.pdf", {
         method: "POST",
         body: JSON.stringify({ job_ids: selectedJobIds, start_position: startPosition })
       });
       const url = window.URL.createObjectURL(blob);
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      iframe.src = url;
+      const iframe = printWindow.document.createElement("iframe");
+      iframe.id = "print-frame";
       iframe.onload = () => {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
         setTimeout(() => {
           window.URL.revokeObjectURL(url);
-          iframe.remove();
         }, 1000);
       };
-      document.body.appendChild(iframe);
+      const status = printWindow.document.getElementById("print-status");
+      if (status) {
+        status.replaceWith(iframe);
+      } else {
+        printWindow.document.body.appendChild(iframe);
+      }
+      iframe.src = url;
       jobsQuery.refetch();
     } catch (error) {
+      printWindow.close();
       setDownloadError(error instanceof Error ? error.message : "Unable to print labels");
     }
   };
