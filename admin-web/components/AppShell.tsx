@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -23,6 +23,7 @@ const links = [
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { logout, roles, primaryRole, accessToken } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
   const roleLabel = roles.length ? roles.join(", ") : primaryRole || "unknown";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -43,6 +44,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [mobileMenuOpen]);
 
+  useEffect(() => {
+    if (!accessToken && pathname !== "/") {
+      router.replace("/");
+    }
+  }, [accessToken, pathname, router]);
+
   if (!accessToken) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center px-4 py-12">
@@ -59,12 +66,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <p className="mt-4 text-xl font-semibold">Please sign in</p>
           <p className="mt-2 text-sm text-slate">Your session has expired.</p>
-          <Link
+          <a
             className="mt-6 inline-flex rounded-full bg-forest px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(15,61,51,0.2)] transition hover:bg-pine hover:shadow-[0_12px_28px_rgba(15,61,51,0.25)]"
             href="/"
           >
             Go to Login
-          </Link>
+          </a>
         </div>
       </div>
     );
