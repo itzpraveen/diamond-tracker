@@ -63,8 +63,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refresh = async () => {
-    if (!refreshToken) return;
-    const tokens = await api.refresh(refreshToken);
+    const storedRefresh = refreshToken || localStorage.getItem(REFRESH_KEY);
+    if (!storedRefresh) return;
+    const tokens = await api.refresh(storedRefresh);
     localStorage.setItem(ACCESS_KEY, tokens.access_token);
     localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
     setAccessToken(tokens.access_token);
