@@ -493,22 +493,23 @@ export default function ItemsPage() {
         body: JSON.stringify({ job_ids: selectedJobIds, start_position: startPosition })
       });
       const url = window.URL.createObjectURL(blob);
-      const iframe = printWindow.document.createElement("iframe");
-      iframe.id = "print-frame";
-      iframe.onload = () => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
+      const triggerPrint = () => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch {
+          // Ignore print errors; user can print manually.
+        }
+      };
+      const fallbackTimer = window.setTimeout(triggerPrint, 1200);
+      printWindow.addEventListener("load", () => {
+        window.clearTimeout(fallbackTimer);
+        triggerPrint();
         setTimeout(() => {
           window.URL.revokeObjectURL(url);
         }, 1000);
-      };
-      const status = printWindow.document.getElementById("print-status");
-      if (status) {
-        status.replaceWith(iframe);
-      } else {
-        printWindow.document.body.appendChild(iframe);
-      }
-      iframe.src = url;
+      });
+      printWindow.location.href = url;
       jobsQuery.refetch();
     } catch (error) {
       printWindow.close();
