@@ -141,6 +141,7 @@ class ItemJob(Base):
     item_description: Mapped[str] = mapped_column(Text)
     approximate_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     purchase_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    voucher_no: Mapped[str | None] = mapped_column(String(80), nullable=True)
     item_source: Mapped[ItemSource | None] = mapped_column(ITEM_SOURCE_ENUM, nullable=True)
     repair_type: Mapped[RepairType | None] = mapped_column(REPAIR_TYPE_ENUM, nullable=True)
     work_narration: Mapped[str | None] = mapped_column(Text, nullable=True)

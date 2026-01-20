@@ -72,6 +72,7 @@ class JobCreate(BaseModel):
     item_description: str
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
+    voucher_no: Optional[str] = None
     item_source: ItemSource
     repair_type: Optional[RepairType] = None
     work_narration: Optional[str] = None
@@ -88,6 +89,7 @@ class JobUpdate(BaseModel):
     item_description: Optional[str] = None
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
+    voucher_no: Optional[str] = None
     item_source: Optional[ItemSource] = None
     repair_type: Optional[RepairType] = None
     work_narration: Optional[str] = None
@@ -109,6 +111,7 @@ class JobOut(BaseModel):
     item_description: str
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
+    voucher_no: Optional[str] = None
     item_source: Optional[ItemSource] = None
     repair_type: Optional[RepairType] = None
     work_narration: Optional[str] = None

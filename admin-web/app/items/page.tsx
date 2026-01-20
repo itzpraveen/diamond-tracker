@@ -47,6 +47,7 @@ function CreateJobModal({
     diamond_cent: "",
     approximate_weight: "",
     purchase_value: "",
+    voucher_no: "",
     notes: ""
   });
   const [error, setError] = useState("");
@@ -82,6 +83,7 @@ function CreateJobModal({
           ...formData,
           approximate_weight: formData.approximate_weight ? parseFloat(formData.approximate_weight) : null,
           purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null,
+          voucher_no: formData.voucher_no || null,
           item_source: formData.item_source,
           repair_type: formData.repair_type || null,
           work_narration: formData.work_narration || null,
@@ -307,6 +309,15 @@ function CreateJobModal({
                 onChange={(e) => setFormData({ ...formData, purchase_value: e.target.value })}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">Voucher No</label>
+            <Input
+              placeholder="Voucher number"
+              value={formData.voucher_no}
+              onChange={(e) => setFormData({ ...formData, voucher_no: e.target.value })}
+            />
           </div>
 
           <div>

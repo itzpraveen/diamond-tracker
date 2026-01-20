@@ -137,6 +137,7 @@ def _draw_label(
     work_narration = _normalize_text(job.work_narration)
     weight = _format_number(job.approximate_weight, "g")
     value = _format_number(job.purchase_value)
+    voucher_no = _normalize_text(job.voucher_no)
     diamond = _format_number(job.diamond_cent, "c")
     customer = _normalize_text(job.customer_name)
     phone = _normalize_text(job.customer_phone)
@@ -158,6 +159,7 @@ def _draw_label(
         ("Source", source),
         ("Weight", weight),
         ("Value (INR)", value),
+        ("Voucher No", voucher_no),
         ("Diamond Cent", diamond),
     ]
 

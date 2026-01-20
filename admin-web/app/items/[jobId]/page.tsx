@@ -60,6 +60,7 @@ function EditJobModal({
     diamond_cent: job.diamond_cent?.toString() || "",
     approximate_weight: job.approximate_weight?.toString() || "",
     purchase_value: job.purchase_value?.toString() || "",
+    voucher_no: job.voucher_no || "",
     notes: job.notes || "",
     reason: ""
   });
@@ -80,6 +81,7 @@ function EditJobModal({
           item_description: formData.item_description,
           approximate_weight: formData.approximate_weight ? parseFloat(formData.approximate_weight) : null,
           purchase_value: formData.purchase_value ? parseFloat(formData.purchase_value) : null,
+          voucher_no: formData.voucher_no || null,
           item_source: formData.item_source || null,
           repair_type: formData.repair_type || null,
           work_narration: formData.work_narration || null,
@@ -250,6 +252,14 @@ function EditJobModal({
                 onChange={(e) => setFormData({ ...formData, purchase_value: e.target.value })}
               />
             </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Voucher No</label>
+            <Input
+              placeholder="Voucher number"
+              value={formData.voucher_no}
+              onChange={(e) => setFormData({ ...formData, voucher_no: e.target.value })}
+            />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Notes</label>
@@ -519,6 +529,10 @@ export default function ItemDetailPage() {
             <div>
               <p className="text-xs text-slate-500">Purchase Value (INR)</p>
               <p className="font-medium">{formatInr(job?.purchase_value)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Voucher No</p>
+              <p className="font-medium">{job?.voucher_no || "-"}</p>
             </div>
             <div className="md:col-span-2">
               <p className="text-xs text-slate-500">Description</p>
