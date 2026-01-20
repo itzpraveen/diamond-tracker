@@ -441,6 +441,7 @@ export default function ItemsPage() {
 
   const hasFilters = jobIdFilter || statusFilter || phoneFilter || fromDate || toDate;
   const allSelected = jobs.length > 0 && selectedJobs.length === jobs.length;
+  const selectedLabelCount = selectedJobs.length;
 
   const toggleSelectAll = (checked: boolean) => {
     setSelectedJobs(checked ? jobs.map((job) => job.job_id) : []);
@@ -516,50 +517,59 @@ export default function ItemsPage() {
             <CardTitle>Search & Track</CardTitle>
             <CardDescription>Find, filter, and open every item record in seconds.</CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
               {showFilters ? "Hide Filters" : "Filters"}
             </Button>
-            <div className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white/70 px-3 py-2">
-              <span className="text-xs font-semibold text-slate">Start position</span>
-              <div className="grid grid-cols-2 gap-1">
-                {labelPositions.map((position) => {
-                  const isSelected = startPosition === position;
-                  return (
-                    <button
-                      key={position}
-                      type="button"
-                      className={`h-7 w-7 rounded-lg border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest/30 ${
-                        isSelected
-                          ? "border-forest bg-forest text-white shadow-[0_4px_10px_rgba(15,61,51,0.2)]"
-                          : "border-ink/15 bg-white text-slate-600 hover:border-ink/30"
-                      }`}
-                      aria-pressed={isSelected}
-                      aria-label={`Start at position ${position}`}
-                      onClick={() => setStartPosition(position)}
-                    >
-                      {position}
-                    </button>
-                  );
-                })}
+            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink/10 bg-white/80 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,20,0.06)]">
+              <div className="flex items-center gap-3 pr-3 sm:border-r sm:border-ink/10">
+                <div className="leading-tight">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate/70">
+                    Start Position
+                  </p>
+                  <p className="text-xs font-semibold text-ink">A4 • 2x3 sheet</p>
+                </div>
+                <div className="grid grid-cols-2 gap-1" role="group" aria-label="Start position">
+                  {labelPositions.map((position) => {
+                    const isSelected = startPosition === position;
+                    return (
+                      <button
+                        key={position}
+                        type="button"
+                        className={`h-7 w-7 rounded-lg border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest/30 ${
+                          isSelected
+                            ? "border-forest bg-forest text-white shadow-[0_4px_10px_rgba(15,61,51,0.2)]"
+                            : "border-ink/15 bg-white text-slate-600 hover:border-ink/30"
+                        }`}
+                        aria-pressed={isSelected}
+                        aria-label={`Start at position ${position}`}
+                        onClick={() => setStartPosition(position)}
+                      >
+                        {position}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadLabels}
+                  disabled={!selectedLabelCount}
+                >
+                  {selectedLabelCount ? `Download ${selectedLabelCount} (A4)` : "Download A4"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePrintLabels}
+                  disabled={!selectedLabelCount}
+                >
+                  {selectedLabelCount ? `Print ${selectedLabelCount} (A4)` : "Print A4"}
+                </Button>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownloadLabels}
-              disabled={!selectedJobs.length}
-            >
-              {selectedJobs.length ? `Download ${selectedJobs.length} Labels (A4)` : "Download Labels (A4)"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePrintLabels}
-              disabled={!selectedJobs.length}
-            >
-              {selectedJobs.length ? `Print ${selectedJobs.length} Labels (A4)` : "Print Labels (A4)"}
-            </Button>
             <Button size="sm" onClick={() => setShowCreateModal(true)}>
               + Create Job
             </Button>
