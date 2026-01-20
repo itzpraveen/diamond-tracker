@@ -167,6 +167,7 @@ class JobScanRequest(BaseModel):
 
 class LabelSheetRequest(BaseModel):
     job_ids: List[str] = Field(default_factory=list)
+    start_position: int = Field(default=1, ge=1)
 
 
 class UploadResponse(BaseModel):

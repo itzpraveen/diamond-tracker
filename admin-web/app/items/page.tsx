@@ -25,6 +25,7 @@ const statuses = [
   "ON_HOLD",
   "CANCELLED"
 ];
+const labelPositions = [1, 2, 3, 4, 5, 6];
 
 function CreateJobModal({
   onClose,
@@ -380,6 +381,7 @@ export default function ItemsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [downloadError, setDownloadError] = useState("");
+  const [startPosition, setStartPosition] = useState(1);
 
   // Filters
   const [jobIdFilter, setJobIdFilter] = useState("");
@@ -439,7 +441,7 @@ export default function ItemsPage() {
     try {
       const blob = await requestBlob("/jobs/labels.pdf", {
         method: "POST",
-        body: JSON.stringify({ job_ids: selectedJobIds })
+        body: JSON.stringify({ job_ids: selectedJobIds, start_position: startPosition })
       });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -465,10 +467,34 @@ export default function ItemsPage() {
             <CardTitle>Search & Track</CardTitle>
             <CardDescription>Find, filter, and open every item record in seconds.</CardDescription>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
               {showFilters ? "Hide Filters" : "Filters"}
             </Button>
+            <div className="flex items-center gap-2 rounded-xl border border-ink/10 bg-white/70 px-3 py-2">
+              <span className="text-xs font-semibold text-slate">Start position</span>
+              <div className="grid grid-cols-2 gap-1">
+                {labelPositions.map((position) => {
+                  const isSelected = startPosition === position;
+                  return (
+                    <button
+                      key={position}
+                      type="button"
+                      className={`h-7 w-7 rounded-lg border text-[11px] font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-forest/30 ${
+                        isSelected
+                          ? "border-forest bg-forest text-white shadow-[0_4px_10px_rgba(15,61,51,0.2)]"
+                          : "border-ink/15 bg-white text-slate-600 hover:border-ink/30"
+                      }`}
+                      aria-pressed={isSelected}
+                      aria-label={`Start at position ${position}`}
+                      onClick={() => setStartPosition(position)}
+                    >
+                      {position}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <Button
               variant="outline"
               size="sm"

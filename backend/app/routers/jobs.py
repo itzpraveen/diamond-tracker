@@ -457,7 +457,10 @@ def get_label_sheet(payload: LabelSheetRequest, db: Session = Depends(get_db), u
         factory_name = _resolve_factory_name(db, job)
         label_entries.append((job, branch_name, factory_name))
 
-    pdf_bytes = generate_label_sheet_pdf(label_entries)
+    try:
+        pdf_bytes = generate_label_sheet_pdf(label_entries, start_position=payload.start_position)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     updated = False
     for job in jobs:
         updated = _record_label_print(db, job, user) or updated

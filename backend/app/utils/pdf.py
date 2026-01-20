@@ -284,7 +284,12 @@ def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None 
     return buffer.getvalue()
 
 
-def generate_label_sheet_pdf(labels: Iterable[tuple[ItemJob, str, str | None]], columns: int = 2, rows: int = 3) -> bytes:
+def generate_label_sheet_pdf(
+    labels: Iterable[tuple[ItemJob, str, str | None]],
+    columns: int = 2,
+    rows: int = 3,
+    start_position: int = 1,
+) -> bytes:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     page_width, page_height = A4
@@ -314,10 +319,25 @@ def generate_label_sheet_pdf(labels: Iterable[tuple[ItemJob, str, str | None]], 
 
     label_list = list(labels)
     labels_per_page = len(positions)
+    start_position = max(start_position, 1)
+    if start_position > labels_per_page:
+        raise ValueError(f"start_position must be between 1 and {labels_per_page}")
+
+    start_index = start_position - 1
+    first_page_capacity = labels_per_page - start_index
+    current_page = 0
     for index, (job, branch_name, factory_name) in enumerate(label_list):
-        if index and index % labels_per_page == 0:
+        if index < first_page_capacity:
+            page_index = 0
+            position_index = start_index + index
+        else:
+            adjusted = index - first_page_capacity
+            page_index = 1 + adjusted // labels_per_page
+            position_index = adjusted % labels_per_page
+        while current_page < page_index:
             c.showPage()
-        x, y = positions[index % labels_per_page]
+            current_page += 1
+        x, y = positions[position_index]
         _draw_label(c, job, branch_name, factory_name, x, y, base_width, base_height, scale)
 
     c.showPage()
