@@ -473,6 +473,39 @@ export default function ItemsPage() {
     }
   };
 
+  const handlePrintLabels = async () => {
+    const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
+    if (!selectedJobIds.length) return;
+    setDownloadError("");
+    try {
+      const blob = await requestBlob("/jobs/labels.pdf", {
+        method: "POST",
+        body: JSON.stringify({ job_ids: selectedJobIds, start_position: startPosition })
+      });
+      const url = window.URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      iframe.src = url;
+      iframe.onload = () => {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          window.URL.revokeObjectURL(url);
+          iframe.remove();
+        }, 1000);
+      };
+      document.body.appendChild(iframe);
+      jobsQuery.refetch();
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Unable to print labels");
+    }
+  };
+
   return (
     <AppShell>
       <Card className="space-y-5">
@@ -518,6 +551,14 @@ export default function ItemsPage() {
               disabled={!selectedJobs.length}
             >
               {selectedJobs.length ? `Download ${selectedJobs.length} Labels (A4)` : "Download Labels (A4)"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrintLabels}
+              disabled={!selectedJobs.length}
+            >
+              {selectedJobs.length ? `Print ${selectedJobs.length} Labels (A4)` : "Print Labels (A4)"}
             </Button>
             <Button size="sm" onClick={() => setShowCreateModal(true)}>
               + Create Job
