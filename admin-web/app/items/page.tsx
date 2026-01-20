@@ -18,8 +18,6 @@ const statuses = [
   "PURCHASED",
   "PACKED_READY",
   "DISPATCHED_TO_FACTORY",
-  "RECEIVED_AT_FACTORY",
-  "RETURNED_FROM_FACTORY",
   "RECEIVED_AT_SHOP",
   "ADDED_TO_STOCK",
   "HANDED_TO_DELIVERY",
@@ -378,8 +376,10 @@ function CreateJobModal({
 }
 
 export default function ItemsPage() {
-  const { request } = useApi();
+  const { request, requestBlob } = useApi();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+  const [downloadError, setDownloadError] = useState("");
 
   // Filters
   const [jobIdFilter, setJobIdFilter] = useState("");
@@ -409,6 +409,10 @@ export default function ItemsPage() {
 
   const jobs = jobsQuery.data || [];
 
+  useEffect(() => {
+    setSelectedJobs((prev) => prev.filter((jobId) => jobs.some((job) => job.job_id === jobId)));
+  }, [jobs]);
+
   const clearFilters = () => {
     setJobIdFilter("");
     setStatusFilter("");
@@ -418,6 +422,38 @@ export default function ItemsPage() {
   };
 
   const hasFilters = jobIdFilter || statusFilter || phoneFilter || fromDate || toDate;
+  const allSelected = jobs.length > 0 && selectedJobs.length === jobs.length;
+
+  const toggleSelectAll = (checked: boolean) => {
+    setSelectedJobs(checked ? jobs.map((job) => job.job_id) : []);
+  };
+
+  const toggleJobSelection = (jobId: string, checked: boolean) => {
+    setSelectedJobs((prev) => (checked ? Array.from(new Set([...prev, jobId])) : prev.filter((id) => id !== jobId)));
+  };
+
+  const handleDownloadLabels = async () => {
+    const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
+    if (!selectedJobIds.length) return;
+    setDownloadError("");
+    try {
+      const blob = await requestBlob("/jobs/labels.pdf", {
+        method: "POST",
+        body: JSON.stringify({ job_ids: selectedJobIds })
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `labels-a4-${selectedJobIds.length}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      jobsQuery.refetch();
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Unable to download labels");
+    }
+  };
 
   return (
     <AppShell>
@@ -433,11 +469,20 @@ export default function ItemsPage() {
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
               {showFilters ? "Hide Filters" : "Filters"}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadLabels}
+              disabled={!selectedJobs.length}
+            >
+              {selectedJobs.length ? `Download ${selectedJobs.length} Labels (A4)` : "Download Labels (A4)"}
+            </Button>
             <Button size="sm" onClick={() => setShowCreateModal(true)}>
               + Create Job
             </Button>
           </div>
         </div>
+        {downloadError && <p className="text-sm text-red-600">{downloadError}</p>}
 
         {/* Filters Section */}
         {showFilters && (
@@ -509,6 +554,15 @@ export default function ItemsPage() {
           <Table>
             <THead>
               <TR>
+                <TH className="w-10">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-forest"
+                    checked={allSelected}
+                    onChange={(event) => toggleSelectAll(event.target.checked)}
+                    aria-label="Select all jobs"
+                  />
+                </TH>
                 <TH>Job ID</TH>
                 <TH>Customer</TH>
                 <TH>Status</TH>
@@ -520,6 +574,15 @@ export default function ItemsPage() {
             <TBody>
               {jobs.map((job) => (
                 <TR key={job.job_id}>
+                  <TD className="w-10">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-forest"
+                      checked={selectedJobs.includes(job.job_id)}
+                      onChange={(event) => toggleJobSelection(job.job_id, event.target.checked)}
+                      aria-label={`Select job ${job.job_id}`}
+                    />
+                  </TD>
                   <TD className="font-medium">{job.job_id}</TD>
                   <TD>
                     <div>
@@ -556,7 +619,16 @@ export default function ItemsPage() {
                   <p className="font-semibold">{job.job_id}</p>
                   <p className="text-sm text-slate">{job.customer_name || "No customer"}</p>
                 </div>
-                <StatusBadge status={job.current_status} size="sm" />
+                <div className="flex items-center gap-2">
+                  <StatusBadge status={job.current_status} size="sm" />
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-forest"
+                    checked={selectedJobs.includes(job.job_id)}
+                    onChange={(event) => toggleJobSelection(job.job_id, event.target.checked)}
+                    aria-label={`Select job ${job.job_id}`}
+                  />
+                </div>
               </div>
               <div className="space-y-1 border-t border-ink/6 pt-3">
                 <MobileTableRow label="Phone">{job.customer_phone || "-"}</MobileTableRow>

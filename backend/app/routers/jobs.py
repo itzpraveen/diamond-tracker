@@ -24,8 +24,8 @@ from app.models import (
     StatusEvent,
     User,
 )
-from app.schemas import JobCreate, JobDetail, JobMetric, JobOut, JobScanRequest, JobUpdate, StatusEventOut
-from app.utils.pdf import generate_label_pdf
+from app.schemas import JobCreate, JobDetail, JobMetric, JobOut, JobScanRequest, JobUpdate, LabelSheetRequest, StatusEventOut
+from app.utils.pdf import generate_label_pdf, generate_label_sheet_pdf
 from app.utils.transitions import (
     STATUS_HOLDER_ROLE,
     allowed_next_statuses,
@@ -74,6 +74,44 @@ def _get_job_by_code(db: Session, job_id: str) -> ItemJob:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+def _resolve_factory_name(db: Session, job: ItemJob) -> Optional[str]:
+    if job.factory_name:
+        return job.factory_name
+    batch_item = (
+        db.query(BatchItem)
+        .join(Batch, BatchItem.batch_id == Batch.id)
+        .filter(BatchItem.job_id == job.id, Batch.factory_id.isnot(None))
+        .order_by(BatchItem.added_at.desc())
+        .first()
+    )
+    if batch_item and batch_item.batch and batch_item.batch.factory:
+        return batch_item.batch.factory.name
+    return None
+
+
+def _record_label_print(db: Session, job: ItemJob, user: User) -> bool:
+    if job.current_status != Status.PURCHASED:
+        return False
+    if Role.PACKING not in user.roles and Role.ADMIN not in user.roles:
+        return False
+    event_role = select_role_for_status(user.roles, Status.PACKED_READY)
+    job.current_status = Status.PACKED_READY
+    job.current_holder_role = STATUS_HOLDER_ROLE[Status.PACKED_READY]
+    job.current_holder_user_id = user.id
+    job.last_scan_at = datetime.now(timezone.utc)
+    event = StatusEvent(
+        job_id=job.id,
+        from_status=Status.PURCHASED,
+        to_status=Status.PACKED_READY,
+        scanned_by_user_id=user.id,
+        scanned_by_role=event_role,
+        timestamp=datetime.now(timezone.utc),
+        remarks="Label printed",
+    )
+    db.add(event)
+    return True
 
 
 def _get_previous_status_before_hold(db: Session, job: ItemJob) -> Optional[Status]:
@@ -388,33 +426,42 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
 def get_label(job_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY))):
     job = _get_job_by_code(db, job_id)
     branch = db.query(Branch).filter(Branch.id == job.branch_id).first()
-    factory_name = job.factory_name
-    if not factory_name:
-        batch_item = (
-            db.query(BatchItem)
-            .join(Batch, BatchItem.batch_id == Batch.id)
-            .filter(BatchItem.job_id == job.id, Batch.factory_id.isnot(None))
-            .order_by(BatchItem.added_at.desc())
-            .first()
-        )
-        if batch_item and batch_item.batch and batch_item.batch.factory:
-            factory_name = batch_item.batch.factory.name
+    factory_name = _resolve_factory_name(db, job)
     pdf_bytes = generate_label_pdf(job, branch.name if branch else "Main Branch", factory_name=factory_name)
-    if job.current_status == Status.PURCHASED and (Role.PACKING in user.roles or Role.ADMIN in user.roles):
-        event_role = select_role_for_status(user.roles, Status.PACKED_READY)
-        job.current_status = Status.PACKED_READY
-        job.current_holder_role = STATUS_HOLDER_ROLE[Status.PACKED_READY]
-        job.current_holder_user_id = user.id
-        job.last_scan_at = datetime.now(timezone.utc)
-        event = StatusEvent(
-            job_id=job.id,
-            from_status=Status.PURCHASED,
-            to_status=Status.PACKED_READY,
-            scanned_by_user_id=user.id,
-            scanned_by_role=event_role,
-            timestamp=datetime.now(timezone.utc),
-            remarks="Label printed",
-        )
-        db.add(event)
+    if _record_label_print(db, job, user):
         db.commit()
+    return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf")
+
+
+@router.post("/labels.pdf")
+def get_label_sheet(payload: LabelSheetRequest, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY))):
+    job_ids = [job_id.strip() for job_id in payload.job_ids if job_id and job_id.strip()]
+    if not job_ids:
+        raise HTTPException(status_code=400, detail="Job ids are required")
+
+    unique_job_ids = list(dict.fromkeys(job_ids))
+    jobs = db.query(ItemJob).filter(ItemJob.job_id.in_(unique_job_ids)).all()
+    job_map = {job.job_id: job for job in jobs}
+    missing = [job_id for job_id in unique_job_ids if job_id not in job_map]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Jobs not found: {', '.join(missing)}")
+
+    branch_ids = {job.branch_id for job in jobs}
+    branches = db.query(Branch).filter(Branch.id.in_(branch_ids)).all()
+    branch_map = {branch.id: branch.name for branch in branches}
+
+    label_entries = []
+    for job_id in job_ids:
+        job = job_map[job_id]
+        branch_name = branch_map.get(job.branch_id) or "Main Branch"
+        factory_name = _resolve_factory_name(db, job)
+        label_entries.append((job, branch_name, factory_name))
+
+    pdf_bytes = generate_label_sheet_pdf(label_entries)
+    updated = False
+    for job in jobs:
+        updated = _record_label_print(db, job, user) or updated
+    if updated:
+        db.commit()
+
     return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf")

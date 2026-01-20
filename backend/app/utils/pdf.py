@@ -84,12 +84,24 @@ def _draw_image(c: canvas.Canvas, image: ImageReader, x: float, y: float, width:
         mask="auto",
     )
 
+def _draw_label(
+    c: canvas.Canvas,
+    job: ItemJob,
+    branch_name: str,
+    factory_name: str | None,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    scale: float = 1.0,
+) -> None:
+    c.saveState()
+    c.translate(x, y)
+    if scale != 1.0:
+        c.scale(scale, scale)
 
-def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None = None) -> bytes:
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A7)
-
-    page_width, page_height = A7
+    page_width = width
+    page_height = height
     left_margin = 6 * mm
     right_margin = 6 * mm
     top_margin = 6 * mm
@@ -231,6 +243,83 @@ def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None 
         c.setFillColor(colors.HexColor("#9ca3af"))
         c.drawCentredString(photo_x + photo_box / 2, photo_y + photo_box / 2, "No photo")
         c.setFillColor(colors.black)
+
+    c.restoreState()
+
+
+def _label_positions(
+    page_width: float,
+    page_height: float,
+    label_width: float,
+    label_height: float,
+    columns: int = 2,
+    rows: int = 3,
+    gap_x: float = 6 * mm,
+    gap_y: float = 6 * mm,
+) -> list[tuple[float, float]]:
+    if columns <= 0 or rows <= 0:
+        return []
+    grid_width = columns * label_width + (columns - 1) * gap_x
+    grid_height = rows * label_height + (rows - 1) * gap_y
+    start_x = max((page_width - grid_width) / 2, 0)
+    start_y = max((page_height - grid_height) / 2, 0)
+
+    positions = []
+    for row in range(rows):
+        for col in range(columns):
+            x = start_x + col * (label_width + gap_x)
+            y = start_y + (rows - 1 - row) * (label_height + gap_y)
+            positions.append((x, y))
+    return positions
+
+
+def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None = None) -> bytes:
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A7)
+    page_width, page_height = A7
+
+    _draw_label(c, job, branch_name, factory_name, 0, 0, page_width, page_height)
+    c.showPage()
+    c.save()
+    return buffer.getvalue()
+
+
+def generate_label_sheet_pdf(labels: Iterable[tuple[ItemJob, str, str | None]], columns: int = 2, rows: int = 3) -> bytes:
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    page_width, page_height = A4
+    base_width, base_height = A7
+    gap_x = 6 * mm
+    gap_y = 6 * mm
+    scale = min(
+        (page_width - (columns - 1) * gap_x) / (columns * base_width),
+        (page_height - (rows - 1) * gap_y) / (rows * base_height),
+    )
+    scale = min(scale, 1.0)
+    label_width = base_width * scale
+    label_height = base_height * scale
+    positions = _label_positions(
+        page_width,
+        page_height,
+        label_width,
+        label_height,
+        columns=columns,
+        rows=rows,
+        gap_x=gap_x,
+        gap_y=gap_y,
+    )
+    if not positions:
+        c.save()
+        return buffer.getvalue()
+
+    label_list = list(labels)
+    labels_per_page = len(positions)
+    for index, (job, branch_name, factory_name) in enumerate(label_list):
+        if index and index % labels_per_page == 0:
+            c.showPage()
+        x, y = positions[index % labels_per_page]
+        _draw_label(c, job, branch_name, factory_name, x, y, base_width, base_height, scale)
+
     c.showPage()
     c.save()
     return buffer.getvalue()

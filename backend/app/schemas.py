@@ -165,6 +165,10 @@ class JobScanRequest(BaseModel):
     incident_flag: bool = False
 
 
+class LabelSheetRequest(BaseModel):
+    job_ids: List[str] = Field(default_factory=list)
+
+
 class UploadResponse(BaseModel):
     key: str
     url: str
