@@ -148,6 +148,9 @@ def _get_factory_by_uuid(db: Session, factory_id: uuid.UUID) -> Factory:
 def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Role.ADMIN)), db: Session = Depends(get_db)):
     event_role = select_role_for_action(user.roles, preferred=[Role.PURCHASE])
     branch = _get_default_branch(db)
+    voucher_no = payload.voucher_no.strip()
+    if not voucher_no:
+        raise HTTPException(status_code=400, detail="Voucher number is required")
     factory_id = None
     if payload.factory_id:
         factory = _get_factory_by_uuid(db, payload.factory_id)
@@ -167,7 +170,7 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
         item_description=payload.item_description,
         approximate_weight=payload.approximate_weight,
         purchase_value=payload.purchase_value,
-        voucher_no=payload.voucher_no,
+        voucher_no=voucher_no,
         item_source=payload.item_source,
         repair_type=repair_type,
         work_narration=payload.work_narration,
@@ -304,6 +307,10 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
             old_value = getattr(job, field)
             if field == "photos":
                 value = [photo.model_dump() for photo in value]
+            if field == "voucher_no":
+                value = value.strip()
+                if not value:
+                    raise HTTPException(status_code=400, detail="Voucher number is required")
             if old_value != value:
                 changes[field] = {"from": old_value, "to": value}
                 setattr(job, field, value)

@@ -72,7 +72,7 @@ class JobCreate(BaseModel):
     item_description: str
     approximate_weight: Optional[float] = None
     purchase_value: Optional[float] = None
-    voucher_no: Optional[str] = None
+    voucher_no: str = Field(min_length=1)
     item_source: ItemSource
     repair_type: Optional[RepairType] = None
     work_narration: Optional[str] = None

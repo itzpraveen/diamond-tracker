@@ -105,6 +105,10 @@ function CreateJobModal({
 
   const handleSubmit = () => {
     setError("");
+    if (!formData.voucher_no.trim()) {
+      setError("Voucher number is required");
+      return;
+    }
     if (!formData.item_description.trim()) {
       setError("Item description is required");
       return;
@@ -167,6 +171,16 @@ function CreateJobModal({
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium">
+              Voucher No <span className="text-red-500">*</span>
+            </label>
+            <Input
+              placeholder="Voucher number"
+              value={formData.voucher_no}
+              onChange={(e) => setFormData({ ...formData, voucher_no: e.target.value })}
+            />
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-sm font-medium">Customer Name</label>
@@ -309,15 +323,6 @@ function CreateJobModal({
                 onChange={(e) => setFormData({ ...formData, purchase_value: e.target.value })}
               />
             </div>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Voucher No</label>
-            <Input
-              placeholder="Voucher number"
-              value={formData.voucher_no}
-              onChange={(e) => setFormData({ ...formData, voucher_no: e.target.value })}
-            />
           </div>
 
           <div>
