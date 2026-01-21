@@ -13,6 +13,10 @@ DEFAULT_CORS_ORIGINS = [
 class Settings(BaseSettings):
     app_name: str = "Majestic Tracking"
     database_url: str = "postgresql+psycopg://diamond:diamond@localhost:5432/diamond"
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
     secret_key: str = "change-me"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30

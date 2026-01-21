@@ -7,6 +7,7 @@ import { AuthProvider } from "@/lib/auth";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      staleTime: 10000,
       refetchOnWindowFocus: false,
       retry: 1
     }

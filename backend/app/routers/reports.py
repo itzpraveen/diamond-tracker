@@ -63,7 +63,11 @@ def pending_aging(db: Session = Depends(get_db), user=Depends(require_roles(Role
 
 
 @router.get("/turnaround", response_model=List[TurnaroundMetrics])
-def turnaround(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN))):
+def turnaround(
+    window_days: int = Query(default=365, ge=1, le=3650),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN)),
+):
     stages = [
         ("Purchase->Packed", Status.PURCHASED, Status.PACKED_READY),
         ("Packed->Dispatch", Status.PACKED_READY, Status.DISPATCHED_TO_FACTORY),
@@ -73,12 +77,14 @@ def turnaround(db: Session = Depends(get_db), user=Depends(require_roles(Role.AD
         ("ShopReceive->Stock/Delivery", Status.RECEIVED_AT_SHOP, None),
         ("Delivery->Delivered", Status.HANDED_TO_DELIVERY, Status.DELIVERED_TO_CUSTOMER),
     ]
+    cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
     event_rows = (
         db.query(
             StatusEvent.job_id,
             StatusEvent.to_status,
             func.min(StatusEvent.timestamp).label("timestamp"),
         )
+        .filter(StatusEvent.timestamp >= cutoff)
         .group_by(StatusEvent.job_id, StatusEvent.to_status)
         .all()
     )

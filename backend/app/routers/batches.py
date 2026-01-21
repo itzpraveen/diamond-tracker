@@ -3,7 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.deps import require_roles
@@ -23,12 +23,21 @@ def _get_default_branch(db: Session) -> Branch:
     return branch
 
 
-def _get_batch(db: Session, batch_id: str) -> Batch:
+def _get_batch(db: Session, batch_id: str, *, with_items: bool = False, with_factory: bool = False) -> Batch:
     try:
         batch_uuid = uuid.UUID(batch_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid batch id") from exc
-    batch = db.query(Batch).filter(Batch.id == batch_uuid).first()
+    query = db.query(Batch)
+    if with_factory:
+        query = query.options(selectinload(Batch.factory))
+    if with_items:
+        query = query.options(
+            selectinload(Batch.items)
+            .selectinload(BatchItem.job)
+            .selectinload(ItemJob.factory)
+        )
+    batch = query.filter(Batch.id == batch_uuid).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     return batch
@@ -77,7 +86,13 @@ def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH,
 
 @router.get("", response_model=list[BatchOut])
 def list_batches(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK))):
-    return db.query(Batch).order_by(Batch.created_at.desc()).limit(200).all()
+    return (
+        db.query(Batch)
+        .options(selectinload(Batch.factory))
+        .order_by(Batch.created_at.desc())
+        .limit(200)
+        .all()
+    )
 
 
 @router.post("/{batch_id}/items", response_model=BatchOut)
@@ -101,7 +116,12 @@ def add_item(batch_id: str, payload: BatchAddItem, user=Depends(require_roles(Ro
 @router.post("/{batch_id}/dispatch", response_model=BatchOut)
 def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
     batch = _get_batch(db, batch_id)
-    items = db.query(BatchItem).filter(BatchItem.batch_id == batch.id).all()
+    items = (
+        db.query(BatchItem)
+        .options(selectinload(BatchItem.job))
+        .filter(BatchItem.batch_id == batch.id)
+        .all()
+    )
     if not items:
         raise HTTPException(status_code=400, detail="Batch has no items")
     if payload.factory_id:
@@ -143,7 +163,7 @@ def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(re
 
 @router.get("/{batch_id}", response_model=BatchDetail)
 def get_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK))):
-    batch = _get_batch(db, batch_id)
+    batch = _get_batch(db, batch_id, with_items=True, with_factory=True)
     items = [item.job for item in batch.items]
     return BatchDetail(
         **BatchOut.model_validate(batch).model_dump(),
@@ -153,7 +173,7 @@ def get_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(require
 
 @router.get("/{batch_id}/manifest.pdf")
 def get_manifest(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
-    batch = _get_batch(db, batch_id)
+    batch = _get_batch(db, batch_id, with_items=True, with_factory=True)
     jobs = [item.job for item in batch.items]
     pdf_bytes = generate_manifest_pdf(batch, jobs)
     return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf")

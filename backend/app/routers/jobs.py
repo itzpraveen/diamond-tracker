@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import desc, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.deps import require_roles
@@ -69,8 +69,11 @@ def _get_default_branch(db: Session) -> Branch:
     return branch
 
 
-def _get_job_by_code(db: Session, job_id: str) -> ItemJob:
-    job = db.query(ItemJob).filter(ItemJob.job_id == job_id).first()
+def _get_job_by_code(db: Session, job_id: str, *, with_factory: bool = False) -> ItemJob:
+    query = db.query(ItemJob)
+    if with_factory:
+        query = query.options(selectinload(ItemJob.factory))
+    job = query.filter(ItemJob.job_id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -213,7 +216,7 @@ def list_jobs(
     db: Session = Depends(get_db),
     user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY)),
 ):
-    query = db.query(ItemJob)
+    query = db.query(ItemJob).options(selectinload(ItemJob.factory))
     if status:
         query = query.filter(ItemJob.current_status == status)
     if from_date:
@@ -257,7 +260,7 @@ def job_metrics(
 
 @router.get("/{job_id}", response_model=JobDetail)
 def get_job(job_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY))):
-    job = _get_job_by_code(db, job_id)
+    job = _get_job_by_code(db, job_id, with_factory=True)
     events = db.query(StatusEvent).filter(StatusEvent.job_id == job.id).order_by(StatusEvent.timestamp).all()
     user_ids = {event.scanned_by_user_id for event in events}
     if job.current_holder_user_id:
@@ -449,7 +452,12 @@ def get_label_sheet(payload: LabelSheetRequest, db: Session = Depends(get_db), u
         raise HTTPException(status_code=400, detail="Job ids are required")
 
     unique_job_ids = list(dict.fromkeys(job_ids))
-    jobs = db.query(ItemJob).filter(ItemJob.job_id.in_(unique_job_ids)).all()
+    jobs = (
+        db.query(ItemJob)
+        .options(selectinload(ItemJob.factory))
+        .filter(ItemJob.job_id.in_(unique_job_ids))
+        .all()
+    )
     job_map = {job.job_id: job for job in jobs}
     missing = [job_id for job_id in unique_job_ids if job_id not in job_map]
     if missing:
@@ -459,11 +467,32 @@ def get_label_sheet(payload: LabelSheetRequest, db: Session = Depends(get_db), u
     branches = db.query(Branch).filter(Branch.id.in_(branch_ids)).all()
     branch_map = {branch.id: branch.name for branch in branches}
 
+    factory_name_by_job: dict[uuid.UUID, str] = {}
+    for job in jobs:
+        if job.factory:
+            factory_name_by_job[job.id] = job.factory.name
+
+    missing_factory_ids = [job.id for job in jobs if job.id not in factory_name_by_job]
+    if missing_factory_ids:
+        rows = (
+            db.query(BatchItem.job_id, Factory.name)
+            .join(Batch, BatchItem.batch_id == Batch.id)
+            .join(Factory, Batch.factory_id == Factory.id)
+            .filter(BatchItem.job_id.in_(missing_factory_ids))
+            .order_by(BatchItem.job_id, BatchItem.added_at.desc())
+            .all()
+        )
+        for job_id, factory_name in rows:
+            if job_id not in factory_name_by_job:
+                factory_name_by_job[job_id] = factory_name
+
     label_entries = []
     for job_id in job_ids:
         job = job_map[job_id]
         branch_name = branch_map.get(job.branch_id) or "Main Branch"
-        factory_name = _resolve_factory_name(db, job)
+        factory_name = factory_name_by_job.get(job.id)
+        if factory_name is None:
+            factory_name = _resolve_factory_name(db, job)
         label_entries.append((job, branch_name, factory_name))
 
     try:

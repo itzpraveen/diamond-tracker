@@ -1,3 +1,4 @@
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
@@ -92,6 +93,17 @@ def _load_photo_bytes(photo: dict) -> bytes | None:
         return response.content
     except Exception:
         return None
+
+
+@lru_cache(maxsize=512)
+def _qr_png_bytes(payload: str) -> bytes:
+    qr = qrcode.QRCode(box_size=2, border=1)
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    qr_buffer = BytesIO()
+    img.save(qr_buffer, format="PNG")
+    return qr_buffer.getvalue()
 
 
 def _draw_image(c: canvas.Canvas, image: ImageReader, x: float, y: float, width: float, height: float) -> None:
@@ -234,12 +246,7 @@ def _draw_label(
         if photo_bytes:
             photo_reader = ImageReader(BytesIO(photo_bytes))
 
-    qr = qrcode.QRCode(box_size=2, border=1)
-    qr.add_data(job.job_id)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    qr_buffer = BytesIO()
-    img.save(qr_buffer, format="PNG")
+    qr_buffer = BytesIO(_qr_png_bytes(job.job_id))
     qr_buffer.seek(0)
 
     qr_x = left_margin
