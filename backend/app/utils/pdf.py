@@ -5,7 +5,7 @@ from typing import Iterable
 import httpx
 import qrcode
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A7, A4
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
@@ -17,6 +17,28 @@ from app.models import Batch, ItemJob
 settings = get_settings()
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "majestic-logo.png"
 HTTP_CLIENT = httpx.Client(timeout=5.0, follow_redirects=True)
+LABEL_SHEET_COLUMNS = 2
+LABEL_SHEET_ROWS = 3
+LABEL_SHEET_MARGIN_X = 2 * mm
+LABEL_SHEET_MARGIN_Y = 2 * mm
+LABEL_SHEET_GAP_X = 2 * mm
+LABEL_SHEET_GAP_Y = 4 * mm
+
+
+def _label_dimensions(
+    columns: int = LABEL_SHEET_COLUMNS,
+    rows: int = LABEL_SHEET_ROWS,
+    margin_x: float = LABEL_SHEET_MARGIN_X,
+    margin_y: float = LABEL_SHEET_MARGIN_Y,
+    gap_x: float = LABEL_SHEET_GAP_X,
+    gap_y: float = LABEL_SHEET_GAP_Y,
+) -> tuple[float, float]:
+    page_width, page_height = A4
+    usable_width = page_width - (2 * margin_x) - ((columns - 1) * gap_x)
+    usable_height = page_height - (2 * margin_y) - ((rows - 1) * gap_y)
+    if usable_width <= 0 or usable_height <= 0:
+        raise ValueError("Label grid does not fit on A4 with the configured margins/gaps.")
+    return usable_width / columns, usable_height / rows
 
 
 def _format_number(value: float | None, suffix: str = "") -> str:
@@ -277,10 +299,10 @@ def _label_positions(
 
 def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None = None) -> bytes:
     buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=A7)
-    page_width, page_height = A7
+    label_width, label_height = _label_dimensions()
+    c = canvas.Canvas(buffer, pagesize=(label_width, label_height))
 
-    _draw_label(c, job, branch_name, factory_name, 0, 0, page_width, page_height)
+    _draw_label(c, job, branch_name, factory_name, 0, 0, label_width, label_height)
     c.showPage()
     c.save()
     return buffer.getvalue()
@@ -288,23 +310,14 @@ def generate_label_pdf(job: ItemJob, branch_name: str, factory_name: str | None 
 
 def generate_label_sheet_pdf(
     labels: Iterable[tuple[ItemJob, str, str | None]],
-    columns: int = 2,
-    rows: int = 3,
+    columns: int = LABEL_SHEET_COLUMNS,
+    rows: int = LABEL_SHEET_ROWS,
     start_position: int = 1,
 ) -> bytes:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     page_width, page_height = A4
-    base_width, base_height = A7
-    gap_x = 6 * mm
-    gap_y = 6 * mm
-    scale = min(
-        (page_width - (columns - 1) * gap_x) / (columns * base_width),
-        (page_height - (rows - 1) * gap_y) / (rows * base_height),
-    )
-    scale = min(scale, 1.0)
-    label_width = base_width * scale
-    label_height = base_height * scale
+    label_width, label_height = _label_dimensions(columns=columns, rows=rows)
     positions = _label_positions(
         page_width,
         page_height,
@@ -312,8 +325,8 @@ def generate_label_sheet_pdf(
         label_height,
         columns=columns,
         rows=rows,
-        gap_x=gap_x,
-        gap_y=gap_y,
+        gap_x=LABEL_SHEET_GAP_X,
+        gap_y=LABEL_SHEET_GAP_Y,
     )
     if not positions:
         c.save()
@@ -340,7 +353,7 @@ def generate_label_sheet_pdf(
             c.showPage()
             current_page += 1
         x, y = positions[position_index]
-        _draw_label(c, job, branch_name, factory_name, x, y, base_width, base_height, scale)
+        _draw_label(c, job, branch_name, factory_name, x, y, label_width, label_height)
 
     c.showPage()
     c.save()
