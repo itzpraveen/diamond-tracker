@@ -136,6 +136,9 @@ def _draw_label(
 
     page_width = width
     page_height = height
+    c.setStrokeColor(colors.HexColor("#d1d5db"))
+    c.setLineWidth(0.5)
+    c.rect(0, 0, page_width, page_height, stroke=1, fill=0)
     left_margin = 4 * mm
     right_margin = 4 * mm
     top_margin = 4 * mm
