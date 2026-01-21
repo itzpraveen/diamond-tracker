@@ -124,10 +124,10 @@ def _draw_label(
 
     page_width = width
     page_height = height
-    left_margin = 6 * mm
-    right_margin = 6 * mm
-    top_margin = 6 * mm
-    header_height = 16 * mm
+    left_margin = 4 * mm
+    right_margin = 4 * mm
+    top_margin = 4 * mm
+    header_height = 13 * mm
     header_y = page_height - top_margin - header_height
 
     c.setFillColor(colors.HexColor("#f3efe7"))
@@ -135,17 +135,17 @@ def _draw_label(
     c.setFillColor(colors.black)
 
     logo = _load_logo_image()
-    logo_size = 12 * mm
+    logo_size = 10 * mm
     logo_x = left_margin
     logo_y = header_y + (header_height - logo_size) / 2
     if logo:
         _draw_image(c, logo, logo_x, logo_y, logo_size, logo_size)
     title_x = logo_x + logo_size + 3 * mm
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(title_x, header_y + header_height - 6 * mm, "Majestic Tracking")
-    c.setFont("Helvetica", 8)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(title_x, header_y + header_height - 5 * mm, "Majestic Tracking")
+    c.setFont("Helvetica", 6.5)
     c.setFillColor(colors.HexColor("#4b5563"))
-    c.drawString(title_x, header_y + header_height - 11 * mm, f"Job {job.job_id}")
+    c.drawString(title_x, header_y + header_height - 9.5 * mm, f"Job {job.job_id}")
     c.setFillColor(colors.black)
 
     source = job.item_source.value if job.item_source else "-"
@@ -186,23 +186,25 @@ def _draw_label(
     ]
 
     content_width = page_width - left_margin - right_margin
-    col_gap = 4 * mm
+    col_gap = 3 * mm
     col_width = (content_width - col_gap) / 2
     left_x = left_margin
     right_x = left_margin + col_width + col_gap
 
-    bottom_area_top = left_margin + 34 * mm
-    info_top = header_y - 3 * mm
+    qr_size = 22 * mm
+    photo_box = 22 * mm
+    bottom_area_top = left_margin + photo_box + 8 * mm
+    info_top = header_y - 2 * mm
     max_rows = max(len(left_fields), len(right_fields))
-    info_height = max(info_top - bottom_area_top, 24 * mm)
-    row_height = min(8 * mm, info_height / max_rows)
-    value_offset = row_height * 0.45
+    info_height = max(info_top - bottom_area_top, 30 * mm)
+    row_height = info_height / max_rows
+    value_offset = max(2.0 * mm, row_height * 0.55)
 
     def draw_field(label: str, value: str, x: float, y: float) -> None:
         label_font = "Helvetica"
         value_font = "Helvetica-Bold"
-        label_size = 6
-        value_size = 8
+        label_size = min(5.5, row_height * 0.35)
+        value_size = min(7.5, row_height * 0.45)
         c.setFillColor(colors.HexColor("#6b7280"))
         c.setFont(label_font, label_size)
         c.drawString(x, y, label.upper())
@@ -240,14 +242,12 @@ def _draw_label(
     img.save(qr_buffer, format="PNG")
     qr_buffer.seek(0)
 
-    qr_size = 26 * mm
     qr_x = left_margin
     qr_y = left_margin
-    photo_box = 26 * mm
     photo_x = page_width - right_margin - photo_box
     photo_y = left_margin
 
-    c.setFont("Helvetica", 6)
+    c.setFont("Helvetica", 5.5)
     c.setFillColor(colors.HexColor("#6b7280"))
     c.drawString(qr_x, bottom_area_top - 5 * mm, "SCAN")
     c.drawString(photo_x, bottom_area_top - 5 * mm, "PHOTO")
