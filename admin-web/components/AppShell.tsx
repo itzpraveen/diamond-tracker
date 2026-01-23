@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import VersionWatcher from "@/components/VersionWatcher";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -79,6 +80,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen min-h-[100dvh]">
+      <VersionWatcher />
       {/* Mobile Header */}
       <header className="sticky top-0 z-40 lg:hidden">
         <div className="mx-4 mt-4">
