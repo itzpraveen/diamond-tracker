@@ -1,3 +1,4 @@
+from datetime import datetime
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -46,6 +47,12 @@ def _format_number(value: float | None, suffix: str = "") -> str:
     if value is None:
         return "-"
     return f"{value:g}{suffix}"
+
+
+def _format_date(value: datetime | None) -> str:
+    if value is None:
+        return "-"
+    return value.strftime("%d-%m-%Y")
 
 
 def _normalize_text(value: str | None) -> str:
@@ -170,34 +177,52 @@ def _draw_label(
         repair_type = "Customer Repair" if job.item_source.value == "Repair" else "Stock Repair"
     else:
         repair_type = "-"
+
+    is_customer_repair = repair_type == "Customer Repair" or source == "Repair"
+    is_stock = repair_type == "Stock Repair" or source == "Stock"
+    if is_customer_repair:
+        job_type_label = "CUSTOMER REPAIR"
+        job_type_color = colors.HexColor("#b91c1c")
+        job_type_size = 12
+    elif is_stock:
+        job_type_label = "STOCK"
+        job_type_color = colors.HexColor("#047857")
+        job_type_size = 10
+    else:
+        job_type_label = "-"
+        job_type_color = colors.HexColor("#6b7280")
+        job_type_size = 9
+
+    c.setFont("Helvetica-Bold", job_type_size)
+    c.setFillColor(job_type_color)
+    c.drawRightString(page_width - right_margin, header_y + header_height - 5 * mm, job_type_label)
+    c.setFillColor(colors.black)
     factory_label = _normalize_text(factory_name or job.factory_name)
     work_narration = _normalize_text(job.work_narration)
     weight = _format_number(job.approximate_weight, "g")
+    diamond = _format_number(job.diamond_cent, "c")
+    weight_diamond = f"{weight} / {diamond}"
     value = _format_number(job.purchase_value)
     voucher_no = _normalize_text(job.voucher_no)
-    diamond = _format_number(job.diamond_cent, "c")
     customer = _normalize_text(job.customer_name)
-    phone = _normalize_text(job.customer_phone)
     description = _normalize_text(job.item_description)
-    target_return = job.target_return_date.date().isoformat() if job.target_return_date else "-"
+    created_date = _format_date(job.created_at)
+    target_return = _format_date(job.target_return_date)
 
     left_fields = [
-        ("Branch", _normalize_text(branch_name)),
         ("Repair Type", repair_type),
         ("Factory", factory_label),
-        ("Work", work_narration),
+        ("Narration", work_narration),
         ("Item", description),
         ("Customer", customer),
-        ("Phone", phone),
     ]
     right_fields = [
-        ("Created", job.created_at.date().isoformat()),
+        ("Created", created_date),
         ("Target Return", target_return),
         ("Source", source),
-        ("Weight", weight),
-        ("Value (INR)", value),
+        ("Weight / Diamond", weight_diamond),
+        ("MRP / Value", value),
         ("Voucher No", voucher_no),
-        ("Diamond Cent", diamond),
     ]
 
     content_width = page_width - left_margin - right_margin
@@ -223,7 +248,10 @@ def _draw_label(
         c.setFillColor(colors.HexColor("#6b7280"))
         c.setFont(label_font, label_size)
         c.drawString(x, y, label.upper())
-        c.setFillColor(colors.black)
+        if label == "Target Return":
+            c.setFillColor(colors.HexColor("#b91c1c"))
+        else:
+            c.setFillColor(colors.black)
         c.setFont(value_font, value_size)
         fitted = _trim_text(value, col_width, value_font, value_size)
         c.drawString(x, y - value_offset, fitted)

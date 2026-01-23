@@ -4,6 +4,7 @@ from app.utils.transitions import is_allowed_transition, requires_override, role
 
 def test_happy_path_transitions():
     assert is_allowed_transition(Status.PURCHASED, Status.PACKED_READY)
+    assert is_allowed_transition(Status.DISPATCHED_TO_FACTORY, Status.RECEIVED_AT_SHOP)
     assert is_allowed_transition(Status.RECEIVED_AT_SHOP, Status.ADDED_TO_STOCK)
 
 

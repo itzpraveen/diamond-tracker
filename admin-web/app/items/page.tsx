@@ -129,6 +129,10 @@ function CreateJobModal({
       setError("Target return date is required");
       return;
     }
+    if (!formData.factory_id && factories.length) {
+      setError("Factory is required");
+      return;
+    }
     if (!photos.length) {
       setError("At least one photo is required");
       return;
@@ -277,7 +281,9 @@ function CreateJobModal({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Factory</label>
+              <label className="mb-1.5 block text-sm font-medium">
+                Factory {factories.length ? <span className="text-red-500">*</span> : null}
+              </label>
               <Select
                 value={formData.factory_id}
                 onChange={(e) => setFormData({ ...formData, factory_id: e.target.value })}

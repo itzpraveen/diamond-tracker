@@ -166,16 +166,14 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                       },
                     ),
                     MajesticDropdown<String>(
-                      label: 'Factory',
+                      label: 'Factory *',
                       value: _factoryId,
                       hint: _loadingFactories
                           ? 'Loading factories...'
                           : activeFactories.isEmpty
                               ? 'No factories available'
-                              : 'Select factory (optional)',
+                              : 'Select factory',
                       items: [
-                        if (activeFactories.isNotEmpty)
-                          const DropdownMenuItem(value: '', child: Text('No factory')),
                         ...activeFactories.map(
                           (factory) => DropdownMenuItem(
                             value: factory['id']?.toString() ?? '',
@@ -185,6 +183,15 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                       ],
                       enabled: !_submitting && !_loadingFactories && activeFactories.isNotEmpty,
                       onChanged: (value) => setState(() => _factoryId = value),
+                      validator: (value) {
+                        if (activeFactories.isEmpty) {
+                          return null;
+                        }
+                        if (value == null || value.isEmpty) {
+                          return 'Select a factory';
+                        }
+                        return null;
+                      },
                     ),
                     Row(
                       children: [
@@ -380,6 +387,13 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     if (_targetReturnDate == null) {
       messenger.showSnackBar(
         const SnackBar(content: Text('Select a target return date.')),
+      );
+      return;
+    }
+    final activeFactories = _factories.where((factory) => factory['is_active'] != false).toList();
+    if (activeFactories.isNotEmpty && (_factoryId == null || _factoryId!.isEmpty)) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Select a factory.')),
       );
       return;
     }

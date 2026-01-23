@@ -229,6 +229,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       return;
     }
 
+    final currentStatus = _job?['current_status']?.toString();
+    if (currentStatus != null && !_isAllowedTransition(currentStatus, nextStatus)) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Invalid transition: ${statusLabel(currentStatus)} → ${statusLabel(nextStatus)}',
+          ),
+          backgroundColor: MajesticColors.danger,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
 
     final repo = ref.read(jobRepositoryProvider);
@@ -324,6 +337,21 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       case Role.admin:
         return [];
     }
+  }
+
+  bool _isAllowedTransition(String currentStatus, String targetStatus) {
+    const transitions = <String, List<String>>{
+      'PURCHASED': ['PACKED_READY'],
+      'PACKED_READY': ['DISPATCHED_TO_FACTORY'],
+      'DISPATCHED_TO_FACTORY': ['RECEIVED_AT_FACTORY', 'RECEIVED_AT_SHOP'],
+      'RECEIVED_AT_FACTORY': ['RETURNED_FROM_FACTORY'],
+      'RETURNED_FROM_FACTORY': ['RECEIVED_AT_SHOP'],
+      'RECEIVED_AT_SHOP': ['ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'],
+      'HANDED_TO_DELIVERY': ['DELIVERED_TO_CUSTOMER'],
+    };
+    final allowed = transitions[currentStatus];
+    if (allowed == null) return false;
+    return allowed.contains(targetStatus);
   }
 }
 
