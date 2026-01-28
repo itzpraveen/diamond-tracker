@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -26,6 +26,14 @@ const statuses = [
   "CANCELLED"
 ];
 const labelPositions = [1, 2, 3, 4, 5, 6];
+const sortOptions = [
+  { value: "last_scan_at", label: "Last Scan" },
+  { value: "created_at", label: "Created" },
+  { value: "job_id", label: "Job ID" },
+  { value: "customer_name", label: "Customer" },
+  { value: "current_status", label: "Status" },
+  { value: "current_holder_role", label: "Holder" }
+];
 
 function CreateJobModal({
   onClose,
@@ -412,6 +420,10 @@ export default function ItemsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [sortKey, setSortKey] = useState("last_scan_at");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [pageSize, setPageSize] = useState(20);
+  const [pageIndex, setPageIndex] = useState(0);
 
   const buildQueryParams = () => {
     const params = new URLSearchParams();
@@ -437,6 +449,10 @@ export default function ItemsPage() {
     setSelectedJobs((prev) => prev.filter((jobId) => jobs.some((job) => job.job_id === jobId)));
   }, [jobs]);
 
+  useEffect(() => {
+    setPageIndex(0);
+  }, [jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder, pageSize]);
+
   const clearFilters = () => {
     setJobIdFilter("");
     setStatusFilter("");
@@ -446,11 +462,54 @@ export default function ItemsPage() {
   };
 
   const hasFilters = jobIdFilter || statusFilter || phoneFilter || fromDate || toDate;
-  const allSelected = jobs.length > 0 && selectedJobs.length === jobs.length;
+  const collator = useMemo(() => new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }), []);
+  const sortedJobs = [...jobs].sort((a, b) => {
+    const direction = sortOrder === "asc" ? 1 : -1;
+    const getText = (value?: string | null) => (value || "").toString();
+    const getDate = (value?: string | null) => (value ? new Date(value).getTime() : 0);
+    switch (sortKey) {
+      case "job_id":
+        return collator.compare(getText(a.job_id), getText(b.job_id)) * direction;
+      case "customer_name":
+        return collator.compare(getText(a.customer_name), getText(b.customer_name)) * direction;
+      case "current_status":
+        return collator.compare(getText(statusLabel(a.current_status)), getText(statusLabel(b.current_status))) * direction;
+      case "current_holder_role":
+        return collator.compare(getText(a.current_holder_role), getText(b.current_holder_role)) * direction;
+      case "created_at":
+        return (getDate(a.created_at) - getDate(b.created_at)) * direction;
+      case "last_scan_at":
+      default:
+        return (getDate(a.last_scan_at) - getDate(b.last_scan_at)) * direction;
+    }
+  });
+
+  const totalJobs = sortedJobs.length;
+  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
+  const safePageIndex = Math.min(pageIndex, totalPages - 1);
+  const pageStart = safePageIndex * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, totalJobs);
+  const pageJobs = sortedJobs.slice(pageStart, pageEnd);
+
+  useEffect(() => {
+    if (pageIndex !== safePageIndex) {
+      setPageIndex(safePageIndex);
+    }
+  }, [pageIndex, safePageIndex]);
+
+  const allSelected = pageJobs.length > 0 && pageJobs.every((job) => selectedJobs.includes(job.job_id));
   const selectedLabelCount = selectedJobs.length;
 
   const toggleSelectAll = (checked: boolean) => {
-    setSelectedJobs(checked ? jobs.map((job) => job.job_id) : []);
+    setSelectedJobs((prev) => {
+      if (checked) {
+        const next = new Set(prev);
+        pageJobs.forEach((job) => next.add(job.job_id));
+        return Array.from(next);
+      }
+      const pageIds = new Set(pageJobs.map((job) => job.job_id));
+      return prev.filter((jobId) => !pageIds.has(jobId));
+    });
   };
 
   const toggleJobSelection = (jobId: string, checked: boolean) => {
@@ -658,6 +717,51 @@ export default function ItemsPage() {
           </div>
         )}
 
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-white/80 px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate">Sort</span>
+              <Select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value)}
+                className="min-w-[150px]"
+              >
+                {sortOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
+              >
+                {sortOrder === "asc" ? "Asc" : "Desc"}
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-white/80 px-3 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate">Rows</span>
+              <Select
+                value={String(pageSize)}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="w-24"
+              >
+                {[10, 20, 30, 50, 100].map((size) => (
+                  <option key={size} value={size}>
+                    {size} / page
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div className="text-xs text-slate">
+            {totalJobs
+              ? `Showing ${pageStart + 1}-${pageEnd} of ${totalJobs}`
+              : "No results"}
+          </div>
+        </div>
+
         {/* Desktop Table */}
         <div className="hidden sm:block">
           <Table>
@@ -681,9 +785,72 @@ export default function ItemsPage() {
               </TR>
             </THead>
             <TBody>
-              {jobs.map((job) => (
-                <TR key={job.job_id}>
-                  <TD className="w-10">
+              {jobsQuery.isLoading ? (
+                <TR>
+                  <TD colSpan={7}>
+                    <div className="h-10 animate-pulse rounded-xl bg-sand/70" />
+                  </TD>
+                </TR>
+              ) : pageJobs.length ? (
+                pageJobs.map((job) => (
+                  <TR key={job.job_id}>
+                    <TD className="w-10">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-forest"
+                        checked={selectedJobs.includes(job.job_id)}
+                        onChange={(event) => toggleJobSelection(job.job_id, event.target.checked)}
+                        aria-label={`Select job ${job.job_id}`}
+                      />
+                    </TD>
+                    <TD className="font-medium">{job.job_id}</TD>
+                    <TD>
+                      <div>
+                        <div className="font-medium">{job.customer_name || "-"}</div>
+                        {job.customer_phone && (
+                          <div className="text-xs text-slate">{job.customer_phone}</div>
+                        )}
+                      </div>
+                    </TD>
+                    <TD>
+                      <StatusBadge status={job.current_status} />
+                    </TD>
+                    <TD className="text-slate">{job.current_holder_role || "-"}</TD>
+                    <TD className="text-slate">
+                      {job.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}
+                    </TD>
+                    <TD>
+                      <Link href={`/items/${job.job_id}`}>
+                        <Button variant="outline" size="sm">View</Button>
+                      </Link>
+                    </TD>
+                  </TR>
+                ))
+              ) : (
+                <TR>
+                  <TD colSpan={7}>
+                    <p className="text-sm text-slate">No matching jobs found.</p>
+                  </TD>
+                </TR>
+              )}
+            </TBody>
+          </Table>
+        </div>
+
+        {/* Mobile Cards */}
+        <div className="space-y-3 sm:hidden">
+          {jobsQuery.isLoading ? (
+            <div className="h-20 animate-pulse rounded-2xl bg-sand/70" />
+          ) : pageJobs.length ? (
+            pageJobs.map((job) => (
+              <MobileTableCard key={job.job_id}>
+                <div className="mb-3 flex items-start justify-between">
+                  <div>
+                    <p className="font-semibold">{job.job_id}</p>
+                    <p className="text-sm text-slate">{job.customer_name || "No customer"}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge status={job.current_status} size="sm" />
                     <input
                       type="checkbox"
                       className="h-4 w-4 accent-forest"
@@ -691,75 +858,90 @@ export default function ItemsPage() {
                       onChange={(event) => toggleJobSelection(job.job_id, event.target.checked)}
                       aria-label={`Select job ${job.job_id}`}
                     />
-                  </TD>
-                  <TD className="font-medium">{job.job_id}</TD>
-                  <TD>
-                    <div>
-                      <div className="font-medium">{job.customer_name || "-"}</div>
-                      {job.customer_phone && (
-                        <div className="text-xs text-slate">{job.customer_phone}</div>
-                      )}
-                    </div>
-                  </TD>
-                  <TD>
-                    <StatusBadge status={job.current_status} />
-                  </TD>
-                  <TD className="text-slate">{job.current_holder_role || "-"}</TD>
-                  <TD className="text-slate">
-                    {job.last_scan_at ? new Date(job.last_scan_at).toLocaleString() : "-"}
-                  </TD>
-                  <TD>
-                    <Link href={`/items/${job.job_id}`}>
-                      <Button variant="outline" size="sm">View</Button>
-                    </Link>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
+                  </div>
+                </div>
+                <div className="space-y-1 border-t border-ink/6 pt-3">
+                  <MobileTableRow label="Phone">{job.customer_phone || "-"}</MobileTableRow>
+                  <MobileTableRow label="Holder">{job.current_holder_role || "-"}</MobileTableRow>
+                  <MobileTableRow label="Last Scan">
+                    {job.last_scan_at ? new Date(job.last_scan_at).toLocaleDateString() : "-"}
+                  </MobileTableRow>
+                </div>
+                <div className="mt-3 border-t border-ink/6 pt-3">
+                  <Link href={`/items/${job.job_id}`}>
+                    <Button variant="outline" size="sm" className="w-full">View Details</Button>
+                  </Link>
+                </div>
+              </MobileTableCard>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-ink/10 bg-white/80 p-4 text-sm text-slate">
+              No matching jobs found.
+            </div>
+          )}
         </div>
 
-        {/* Mobile Cards */}
-        <div className="space-y-3 sm:hidden">
-          {jobs.map((job) => (
-            <MobileTableCard key={job.job_id}>
-              <div className="mb-3 flex items-start justify-between">
-                <div>
-                  <p className="font-semibold">{job.job_id}</p>
-                  <p className="text-sm text-slate">{job.customer_name || "No customer"}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={job.current_status} size="sm" />
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-forest"
-                    checked={selectedJobs.includes(job.job_id)}
-                    onChange={(event) => toggleJobSelection(job.job_id, event.target.checked)}
-                    aria-label={`Select job ${job.job_id}`}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1 border-t border-ink/6 pt-3">
-                <MobileTableRow label="Phone">{job.customer_phone || "-"}</MobileTableRow>
-                <MobileTableRow label="Holder">{job.current_holder_role || "-"}</MobileTableRow>
-                <MobileTableRow label="Last Scan">
-                  {job.last_scan_at ? new Date(job.last_scan_at).toLocaleDateString() : "-"}
-                </MobileTableRow>
-              </div>
-              <div className="mt-3 border-t border-ink/6 pt-3">
-                <Link href={`/items/${job.job_id}`}>
-                  <Button variant="outline" size="sm" className="w-full">View Details</Button>
-                </Link>
-              </div>
-            </MobileTableCard>
-          ))}
-        </div>
-
-        {!jobs.length && (
-          <div className="py-12 text-center">
-            <p className="text-slate">No matching jobs found.</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-slate">
+            {totalJobs
+              ? `Page ${safePageIndex + 1} of ${totalPages}`
+              : "No results to paginate"}
           </div>
-        )}
+          <div className="flex flex-wrap items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPageIndex(0)}
+              disabled={safePageIndex === 0}
+            >
+              First
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPageIndex((prev) => Math.max(prev - 1, 0))}
+              disabled={safePageIndex === 0}
+            >
+              Prev
+            </Button>
+            {Array.from({ length: totalPages }, (_, i) => i)
+              .filter((index) => Math.abs(index - safePageIndex) <= 2 || index === 0 || index === totalPages - 1)
+              .map((index, idx, arr) => {
+                const prev = arr[idx - 1];
+                const showGap = idx > 0 && index - prev > 1;
+                return (
+                  <span key={`page-${index}`} className="flex items-center gap-1">
+                    {showGap && <span className="px-2 text-xs text-slate">…</span>}
+                    <Button
+                      variant={index === safePageIndex ? "outline" : "ghost"}
+                      size="sm"
+                      onClick={() => setPageIndex(index)}
+                    >
+                      {index + 1}
+                    </Button>
+                  </span>
+                );
+              })}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPageIndex((prev) => Math.min(prev + 1, totalPages - 1))}
+              disabled={safePageIndex >= totalPages - 1}
+            >
+              Next
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPageIndex(totalPages - 1)}
+              disabled={safePageIndex >= totalPages - 1}
+            >
+              Last
+            </Button>
+          </div>
+        </div>
+
+        {!jobs.length && !jobsQuery.isLoading && null}
       </Card>
 
       {showCreateModal && (
