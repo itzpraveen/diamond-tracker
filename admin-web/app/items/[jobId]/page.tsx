@@ -96,7 +96,11 @@ function EditJobModal({
       onSuccess();
       onClose();
     },
-    onError: () => {
+    onError: (err: unknown) => {
+      if (err instanceof Error && err.message) {
+        setError(err.message);
+        return;
+      }
       setError("Failed to update job");
     }
   });

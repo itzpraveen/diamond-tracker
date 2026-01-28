@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     local_storage_path: str = "./storage"
 
     cors_origins: str = ",".join(DEFAULT_CORS_ORIGINS)
+    cors_origin_regex: str = r"^https://([a-z0-9-]+\.)?majesticjewellers\.com$"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
