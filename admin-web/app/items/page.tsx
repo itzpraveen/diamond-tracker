@@ -26,14 +26,7 @@ const statuses = [
   "CANCELLED"
 ];
 const labelPositions = [1, 2, 3, 4, 5, 6];
-const sortOptions = [
-  { value: "last_scan_at", label: "Last Scan" },
-  { value: "created_at", label: "Created" },
-  { value: "job_id", label: "Job ID" },
-  { value: "customer_name", label: "Customer" },
-  { value: "current_status", label: "Status" },
-  { value: "current_holder_role", label: "Holder" }
-];
+const DEFAULT_PAGE_SIZE = 20;
 
 function CreateJobModal({
   onClose,
@@ -422,7 +415,6 @@ export default function ItemsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [sortKey, setSortKey] = useState("last_scan_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [pageSize, setPageSize] = useState(20);
   const [pageIndex, setPageIndex] = useState(0);
 
   const buildQueryParams = () => {
@@ -451,7 +443,7 @@ export default function ItemsPage() {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder, pageSize]);
+  }, [jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder]);
 
   const clearFilters = () => {
     setJobIdFilter("");
@@ -485,10 +477,10 @@ export default function ItemsPage() {
   });
 
   const totalJobs = sortedJobs.length;
-  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalJobs / DEFAULT_PAGE_SIZE));
   const safePageIndex = Math.min(pageIndex, totalPages - 1);
-  const pageStart = safePageIndex * pageSize;
-  const pageEnd = Math.min(pageStart + pageSize, totalJobs);
+  const pageStart = safePageIndex * DEFAULT_PAGE_SIZE;
+  const pageEnd = Math.min(pageStart + DEFAULT_PAGE_SIZE, totalJobs);
   const pageJobs = sortedJobs.slice(pageStart, pageEnd);
 
   useEffect(() => {
@@ -499,6 +491,20 @@ export default function ItemsPage() {
 
   const allSelected = pageJobs.length > 0 && pageJobs.every((job) => selectedJobs.includes(job.job_id));
   const selectedLabelCount = selectedJobs.length;
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortOrder(key === "last_scan_at" || key === "created_at" ? "desc" : "asc");
+  };
+
+  const sortIndicator = (key: string) => {
+    if (sortKey !== key) return "";
+    return sortOrder === "asc" ? "^" : "v";
+  };
 
   const toggleSelectAll = (checked: boolean) => {
     setSelectedJobs((prev) => {
@@ -717,51 +723,6 @@ export default function ItemsPage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-white/80 px-3 py-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate">Sort</span>
-              <Select
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value)}
-                className="min-w-[150px]"
-              >
-                {sortOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
-              >
-                {sortOrder === "asc" ? "Asc" : "Desc"}
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-white/80 px-3 py-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate">Rows</span>
-              <Select
-                value={String(pageSize)}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="w-24"
-              >
-                {[10, 20, 30, 50, 100].map((size) => (
-                  <option key={size} value={size}>
-                    {size} / page
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <div className="text-xs text-slate">
-            {totalJobs
-              ? `Showing ${pageStart + 1}-${pageEnd} of ${totalJobs}`
-              : "No results"}
-          </div>
-        </div>
-
         {/* Desktop Table */}
         <div className="hidden sm:block">
           <Table>
@@ -776,11 +737,66 @@ export default function ItemsPage() {
                     aria-label="Select all jobs"
                   />
                 </TH>
-                <TH>Job ID</TH>
-                <TH>Customer</TH>
-                <TH>Status</TH>
-                <TH>Holder</TH>
-                <TH>Last Scan</TH>
+                <TH>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-2 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate/80 hover:text-ink"
+                    onClick={() => handleSort("job_id")}
+                  >
+                    Job ID
+                    <span className="text-[11px] text-slate/50 group-hover:text-slate/70">
+                      {sortIndicator("job_id")}
+                    </span>
+                  </button>
+                </TH>
+                <TH>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-2 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate/80 hover:text-ink"
+                    onClick={() => handleSort("customer_name")}
+                  >
+                    Customer
+                    <span className="text-[11px] text-slate/50 group-hover:text-slate/70">
+                      {sortIndicator("customer_name")}
+                    </span>
+                  </button>
+                </TH>
+                <TH>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-2 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate/80 hover:text-ink"
+                    onClick={() => handleSort("current_status")}
+                  >
+                    Status
+                    <span className="text-[11px] text-slate/50 group-hover:text-slate/70">
+                      {sortIndicator("current_status")}
+                    </span>
+                  </button>
+                </TH>
+                <TH>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-2 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate/80 hover:text-ink"
+                    onClick={() => handleSort("current_holder_role")}
+                  >
+                    Holder
+                    <span className="text-[11px] text-slate/50 group-hover:text-slate/70">
+                      {sortIndicator("current_holder_role")}
+                    </span>
+                  </button>
+                </TH>
+                <TH>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-2 text-left text-[10px] font-semibold uppercase tracking-[0.2em] text-slate/80 hover:text-ink"
+                    onClick={() => handleSort("last_scan_at")}
+                  >
+                    Last Scan
+                    <span className="text-[11px] text-slate/50 group-hover:text-slate/70">
+                      {sortIndicator("last_scan_at")}
+                    </span>
+                  </button>
+                </TH>
                 <TH>Action</TH>
               </TR>
             </THead>
@@ -884,7 +900,7 @@ export default function ItemsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-slate">
             {totalJobs
-              ? `Page ${safePageIndex + 1} of ${totalPages}`
+              ? `Showing ${pageStart + 1}-${pageEnd} of ${totalJobs} • Page ${safePageIndex + 1} of ${totalPages}`
               : "No results to paginate"}
           </div>
           <div className="flex flex-wrap items-center gap-1">
