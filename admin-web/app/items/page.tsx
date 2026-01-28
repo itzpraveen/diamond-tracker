@@ -441,8 +441,7 @@ export default function ItemsPage() {
     queryFn: () => {
       const queryString = buildQueryParams();
       return request<any[]>(`/jobs?${queryString}`);
-    },
-    keepPreviousData: true
+    }
   });
 
   const jobs = jobsQuery.data || [];
