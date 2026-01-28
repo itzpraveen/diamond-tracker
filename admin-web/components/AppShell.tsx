@@ -180,7 +180,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </div>
         <div className="mt-4 border-t border-ink/10 pt-4">
-          <Button variant="outline" className="w-full" onClick={logout}>
+          <Button variant="outline" className="w-full" onClick={() => logout()}>
             Sign out
           </Button>
         </div>
@@ -238,7 +238,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               })}
             </nav>
 
-            <Button variant="outline" className="w-full" onClick={logout}>
+            <Button variant="outline" className="w-full" onClick={() => logout()}>
               Sign out
             </Button>
           </div>

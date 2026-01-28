@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "@/lib/api";
 
@@ -13,8 +13,10 @@ export type AuthContextValue = {
   roles: string[];
   primaryRole: string | null;
   isLoading: boolean;
+  notice: string | null;
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: (options?: { reason?: "expired" | "manual" }) => void;
+  dismissNotice: () => void;
   refresh: () => Promise<void>;
 };
 
@@ -45,6 +47,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     const storedAccess = localStorage.getItem(ACCESS_KEY);
@@ -60,24 +64,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
     setAccessToken(tokens.access_token);
     setRefreshToken(tokens.refresh_token);
+    setNotice(null);
   };
 
-  const refresh = async () => {
-    const storedRefresh = refreshToken || localStorage.getItem(REFRESH_KEY);
-    if (!storedRefresh) return;
-    const tokens = await api.refresh(storedRefresh);
-    localStorage.setItem(ACCESS_KEY, tokens.access_token);
-    localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
-    setAccessToken(tokens.access_token);
-    setRefreshToken(tokens.refresh_token);
-  };
-
-  const logout = () => {
+  const clearSession = () => {
     localStorage.removeItem(ACCESS_KEY);
     localStorage.removeItem(REFRESH_KEY);
     setAccessToken(null);
     setRefreshToken(null);
   };
+
+  const refresh = async () => {
+    const storedRefresh = refreshToken || localStorage.getItem(REFRESH_KEY);
+    if (!storedRefresh) return;
+    if (refreshInFlight.current) {
+      return refreshInFlight.current;
+    }
+    const run = (async () => {
+      try {
+        const tokens = await api.refresh(storedRefresh);
+        localStorage.setItem(ACCESS_KEY, tokens.access_token);
+        localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
+        setAccessToken(tokens.access_token);
+        setRefreshToken(tokens.refresh_token);
+      } catch (error) {
+        clearSession();
+        throw error;
+      } finally {
+        refreshInFlight.current = null;
+      }
+    })();
+    refreshInFlight.current = run;
+    return run;
+  };
+
+  const logout = (options?: { reason?: "expired" | "manual" }) => {
+    refreshInFlight.current = null;
+    if (options?.reason === "expired") {
+      setNotice("Session expired. Please sign in again.");
+    } else {
+      setNotice(null);
+    }
+    clearSession();
+  };
+
+  const dismissNotice = () => setNotice(null);
 
   const value = useMemo(() => {
     const decodedRoles = decodeRoles(accessToken);
@@ -87,11 +118,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       roles: decodedRoles,
       primaryRole: decodedRoles[0] ?? null,
       isLoading,
+      notice,
       login,
       logout,
+      dismissNotice,
       refresh
     };
-  }, [accessToken, refreshToken, isLoading]);
+  }, [accessToken, refreshToken, isLoading, notice]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

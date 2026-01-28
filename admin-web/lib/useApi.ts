@@ -30,12 +30,17 @@ export function useApi() {
 
       let response = await doFetch(accessToken || undefined);
       if (response.status === 401) {
-        await refresh();
+        try {
+          await refresh();
+        } catch (error) {
+          logout({ reason: "expired" });
+          throw error instanceof Error ? error : new Error("Session expired");
+        }
         response = await doFetch(localStorage.getItem("diamond_access_token") || undefined);
       }
       if (!response.ok) {
         if (response.status === 401) {
-          logout();
+          logout({ reason: "expired" });
         }
         const text = await response.text();
         throw new Error(text || "Request failed");
@@ -68,12 +73,17 @@ export function useApi() {
 
       let response = await doFetch(accessToken || undefined);
       if (response.status === 401) {
-        await refresh();
+        try {
+          await refresh();
+        } catch (error) {
+          logout({ reason: "expired" });
+          throw error instanceof Error ? error : new Error("Session expired");
+        }
         response = await doFetch(localStorage.getItem("diamond_access_token") || undefined);
       }
       if (!response.ok) {
         if (response.status === 401) {
-          logout();
+          logout({ reason: "expired" });
         }
         const text = await response.text();
         throw new Error(text || "Request failed");

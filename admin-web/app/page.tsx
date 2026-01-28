@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 
 export default function HomePage() {
-  const { accessToken, login, isLoading } = useAuth();
+  const { accessToken, login, isLoading, notice, dismissNotice } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +92,20 @@ export default function HomePage() {
                       Use your credentials to continue.
                     </CardDescription>
                   </div>
+
+                  {notice && (
+                    <div className="flex items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                      <p className="text-sm text-amber-700">{notice}</p>
+                      <button
+                        type="button"
+                        onClick={dismissNotice}
+                        className="rounded-md px-1 text-sm text-amber-700/70 transition hover:text-amber-800"
+                        aria-label="Dismiss notification"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
                     <div>
