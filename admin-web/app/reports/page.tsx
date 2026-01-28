@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import AppShell from "@/components/AppShell";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 export default function ReportsPage() {
   const { request } = useApi();
   const [windowDays, setWindowDays] = useState("3");
+  const [showAllBatches, setShowAllBatches] = useState(false);
   const delaysQuery = useQuery({
     queryKey: ["reports", "batch-delays"],
     queryFn: () => request<any[]>("/reports/batch-delays")
@@ -34,6 +36,11 @@ export default function ReportsPage() {
     window.open(`${base}/reports/export.csv?type=${type}`, "_blank");
   };
 
+  const refreshAll = () => {
+    delaysQuery.refetch();
+    repairTargetsQuery.refetch();
+  };
+
   const formatDueWindow = (target?: string | null) => {
     if (!target) return "-";
     const targetDate = new Date(target);
@@ -47,7 +54,38 @@ export default function ReportsPage() {
     return `${overdueDays} day${overdueDays === 1 ? "" : "s"} overdue`;
   };
 
-  const repairTargets = repairTargetsQuery.data || { overdue: [], approaching: [], uncollected: [] };
+  const formatDate = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString();
+  };
+
+  const delays = delaysQuery.data || [];
+  const delayedBatches = delays.filter((batch) => (batch.delay_days ?? 0) > 0);
+  const visibleBatches = showAllBatches ? delays : delayedBatches;
+  const totalDelayDays = delayedBatches.reduce(
+    (sum, batch) => sum + (Number(batch.delay_days) || 0),
+    0
+  );
+  const avgDelay =
+    delayedBatches.length > 0 ? (totalDelayDays / delayedBatches.length).toFixed(1) : "0";
+
+  const lastUpdatedAt = Math.max(delaysQuery.dataUpdatedAt || 0, repairTargetsQuery.dataUpdatedAt || 0);
+  const lastUpdatedLabel = lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleString() : "—";
+  const hasError = delaysQuery.isError || repairTargetsQuery.isError;
+  const delaysError =
+    delaysQuery.error instanceof Error ? delaysQuery.error.message : "Failed to load batch delays.";
+  const repairError =
+    repairTargetsQuery.error instanceof Error ? repairTargetsQuery.error.message : "Failed to load repair targets.";
+
+  const repairTargets = repairTargetsQuery.data;
+  const repairCounts = {
+    overdue: repairTargets?.overdue?.length ?? 0,
+    approaching: repairTargets?.approaching?.length ?? 0,
+    uncollected: repairTargets?.uncollected?.length ?? 0
+  };
+  const renderCount = (count: number) => (repairTargetsQuery.isLoading ? "—" : count);
 
   return (
     <AppShell>
@@ -58,11 +96,53 @@ export default function ReportsPage() {
             <h1 className="text-2xl font-semibold font-display">Exports & Delays</h1>
             <p className="mt-2 text-sm text-slate">Generate CSV exports or review delayed batches.</p>
           </div>
-          <div className="flex flex-wrap gap-2 rounded-2xl border border-ink/10 bg-white/70 p-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-white/70 p-2">
+            <Badge variant="info" size="sm">Live</Badge>
+            <span className="text-xs text-slate-600">Last updated {lastUpdatedLabel}</span>
             <Button variant="outline" onClick={() => exportCsv("jobs")}>Export Jobs</Button>
             <Button variant="outline" onClick={() => exportCsv("batches")}>Export Batches</Button>
             <Button variant="outline" onClick={() => exportCsv("incidents")}>Export Incidents</Button>
+            <Button variant="ghost" onClick={refreshAll} disabled={delaysQuery.isFetching || repairTargetsQuery.isFetching}>
+              {delaysQuery.isFetching || repairTargetsQuery.isFetching ? "Refreshing..." : "Refresh"}
+            </Button>
           </div>
+        </div>
+
+        {hasError && (
+          <div className="rounded-2xl border border-red-200 bg-red-50/70 px-4 py-3 text-sm text-red-700">
+            <p className="font-semibold">Report data could not be loaded.</p>
+            <p className="mt-1">{delaysQuery.isError ? delaysError : repairError}</p>
+          </div>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-ink/10 bg-white/70 p-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-slate">Batches</p>
+            <p className="mt-2 text-2xl font-semibold">{delays.length}</p>
+            <p className="text-sm text-slate">Total batches tracked</p>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-amber-600">Delayed</p>
+            <p className="mt-2 text-2xl font-semibold">{delayedBatches.length}</p>
+            <p className="text-sm text-amber-700">Batches past expected return</p>
+          </div>
+          <div className="rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-sky-600">Avg Delay</p>
+            <p className="mt-2 text-2xl font-semibold">{avgDelay} days</p>
+            <p className="text-sm text-sky-700">Average delay for delayed batches</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate">
+            Showing {showAllBatches ? "all batches" : "delayed batches only"}.
+          </div>
+          <Button
+            variant="ghost"
+            onClick={() => setShowAllBatches((prev) => !prev)}
+          >
+            {showAllBatches ? "Show Delayed Only" : "Show All Batches"}
+          </Button>
         </div>
 
         <Table>
@@ -75,14 +155,34 @@ export default function ReportsPage() {
             </TR>
           </THead>
           <TBody>
-            {(delaysQuery.data || []).map((batch) => (
-              <TR key={batch.batch_code}>
-                <TD>{batch.batch_code}</TD>
-                <TD>{batch.expected_return_date ? new Date(batch.expected_return_date).toLocaleDateString() : "-"}</TD>
-                <TD>{batch.dispatch_date ? new Date(batch.dispatch_date).toLocaleDateString() : "-"}</TD>
-                <TD>{batch.delay_days}</TD>
+            {delaysQuery.isLoading ? (
+              <TR>
+                <TD colSpan={4}>
+                  <div className="h-10 animate-pulse rounded-xl bg-sand/70" />
+                </TD>
               </TR>
-            ))}
+            ) : visibleBatches.length ? (
+              visibleBatches.map((batch) => (
+                <TR key={batch.batch_code}>
+                  <TD>{batch.batch_code}</TD>
+                  <TD>{formatDate(batch.expected_return_date)}</TD>
+                  <TD>{formatDate(batch.dispatch_date)}</TD>
+                  <TD>
+                    <Badge variant={batch.delay_days > 0 ? "danger" : "default"} size="sm">
+                      {batch.delay_days ?? 0}
+                    </Badge>
+                  </TD>
+                </TR>
+              ))
+            ) : (
+              <TR>
+                <TD colSpan={4}>
+                  <p className="text-sm text-slate">
+                    No batches match this view. Try “Show All Batches” or adjust expected return dates.
+                  </p>
+                </TD>
+              </TR>
+            )}
           </TBody>
         </Table>
       </Card>
@@ -108,21 +208,25 @@ export default function ReportsPage() {
             />
           </div>
         </div>
+        <p className="text-xs text-slate-500">
+          Only items with a target return date within this window (or overdue) are shown. Increase the window to include
+          more upcoming work.
+        </p>
 
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-2xl border border-red-200 bg-red-50/60 p-4">
             <p className="text-xs uppercase tracking-[0.3em] text-red-500">Overdue</p>
-            <p className="mt-2 text-2xl font-semibold">{repairTargets.overdue.length}</p>
+            <p className="mt-2 text-2xl font-semibold">{renderCount(repairCounts.overdue)}</p>
             <p className="text-sm text-red-700">Not back from repair</p>
           </div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
             <p className="text-xs uppercase tracking-[0.3em] text-amber-600">Approaching</p>
-            <p className="mt-2 text-2xl font-semibold">{repairTargets.approaching.length}</p>
+            <p className="mt-2 text-2xl font-semibold">{renderCount(repairCounts.approaching)}</p>
             <p className="text-sm text-amber-700">Due within {windowDaysValue} days</p>
           </div>
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
             <p className="text-xs uppercase tracking-[0.3em] text-emerald-600">Uncollected</p>
-            <p className="mt-2 text-2xl font-semibold">{repairTargets.uncollected.length}</p>
+            <p className="mt-2 text-2xl font-semibold">{renderCount(repairCounts.uncollected)}</p>
             <p className="text-sm text-emerald-700">Returned, waiting on customer</p>
           </div>
         </div>
@@ -131,9 +235,11 @@ export default function ReportsPage() {
           <div>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-red-700">Overdue Repairs</p>
-              <p className="text-xs text-slate-500">{repairTargets.overdue.length} items</p>
+              <p className="text-xs text-slate-500">{renderCount(repairCounts.overdue)} items</p>
             </div>
-            {repairTargets.overdue.length ? (
+            {repairTargetsQuery.isLoading ? (
+              <div className="h-12 animate-pulse rounded-xl bg-sand/70" />
+            ) : repairCounts.overdue ? (
               <Table>
                 <THead>
                   <TR>
@@ -147,7 +253,7 @@ export default function ReportsPage() {
                   </TR>
                 </THead>
                 <TBody>
-                  {repairTargets.overdue.map((job: any) => (
+                  {repairTargets?.overdue?.map((job: any) => (
                     <TR key={`overdue-${job.job_id}`}>
                       <TD>{job.job_id}</TD>
                       <TD>
@@ -173,9 +279,11 @@ export default function ReportsPage() {
           <div>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-amber-700">Approaching Deadlines</p>
-              <p className="text-xs text-slate-500">{repairTargets.approaching.length} items</p>
+              <p className="text-xs text-slate-500">{renderCount(repairCounts.approaching)} items</p>
             </div>
-            {repairTargets.approaching.length ? (
+            {repairTargetsQuery.isLoading ? (
+              <div className="h-12 animate-pulse rounded-xl bg-sand/70" />
+            ) : repairCounts.approaching ? (
               <Table>
                 <THead>
                   <TR>
@@ -189,7 +297,7 @@ export default function ReportsPage() {
                   </TR>
                 </THead>
                 <TBody>
-                  {repairTargets.approaching.map((job: any) => (
+                  {repairTargets?.approaching?.map((job: any) => (
                     <TR key={`approaching-${job.job_id}`}>
                       <TD>{job.job_id}</TD>
                       <TD>
@@ -215,9 +323,11 @@ export default function ReportsPage() {
           <div>
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-emerald-700">Uncollected Items</p>
-              <p className="text-xs text-slate-500">{repairTargets.uncollected.length} items</p>
+              <p className="text-xs text-slate-500">{renderCount(repairCounts.uncollected)} items</p>
             </div>
-            {repairTargets.uncollected.length ? (
+            {repairTargetsQuery.isLoading ? (
+              <div className="h-12 animate-pulse rounded-xl bg-sand/70" />
+            ) : repairCounts.uncollected ? (
               <Table>
                 <THead>
                   <TR>
@@ -231,7 +341,7 @@ export default function ReportsPage() {
                   </TR>
                 </THead>
                 <TBody>
-                  {repairTargets.uncollected.map((job: any) => (
+                  {repairTargets?.uncollected?.map((job: any) => (
                     <TR key={`uncollected-${job.job_id}`}>
                       <TD>{job.job_id}</TD>
                       <TD>
