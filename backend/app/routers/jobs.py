@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
+import enum
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -289,6 +290,19 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
     if payload.factory_id is not None:
         _get_factory_by_uuid(db, payload.factory_id)
     changes = {}
+
+    def _json_safe(value):
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        if isinstance(value, enum.Enum):
+            return value.value
+        if isinstance(value, list):
+            return [_json_safe(item) for item in value]
+        if isinstance(value, dict):
+            return {key: _json_safe(item) for key, item in value.items()}
+        return value
     for field in [
         "customer_name",
         "customer_phone",
@@ -315,7 +329,7 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
                 if not value:
                     raise HTTPException(status_code=400, detail="Voucher number is required")
             if old_value != value:
-                changes[field] = {"from": old_value, "to": value}
+                changes[field] = {"from": _json_safe(old_value), "to": _json_safe(value)}
                 setattr(job, field, value)
     if not changes:
         return job
