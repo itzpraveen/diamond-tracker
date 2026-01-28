@@ -99,7 +99,11 @@ function CreateJobModal({
       onSuccess();
       onClose();
     },
-    onError: () => {
+    onError: (err: unknown) => {
+      if (err instanceof Error && err.message) {
+        setError(err.message);
+        return;
+      }
       setError("Failed to create job");
     }
   });
@@ -416,6 +420,7 @@ export default function ItemsPage() {
   const [sortKey, setSortKey] = useState("last_scan_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const buildQueryParams = () => {
     const params = new URLSearchParams();
@@ -424,15 +429,20 @@ export default function ItemsPage() {
     if (phoneFilter) params.append("phone", phoneFilter);
     if (fromDate) params.append("from_date", new Date(fromDate).toISOString());
     if (toDate) params.append("to_date", new Date(toDate).toISOString());
+    params.append("sort_by", sortKey);
+    params.append("sort_dir", sortOrder);
+    params.append("limit", String(pageSize));
+    params.append("offset", String(pageIndex * pageSize));
     return params.toString();
   };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, fromDate, toDate],
+    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder, pageIndex, pageSize],
     queryFn: () => {
       const queryString = buildQueryParams();
-      return request<any[]>(queryString ? `/jobs?${queryString}` : "/jobs");
-    }
+      return request<any[]>(`/jobs?${queryString}`);
+    },
+    keepPreviousData: true
   });
 
   const jobs = jobsQuery.data || [];
@@ -443,7 +453,7 @@ export default function ItemsPage() {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder]);
+  }, [jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder, pageSize]);
 
   const clearFilters = () => {
     setJobIdFilter("");
@@ -454,40 +464,12 @@ export default function ItemsPage() {
   };
 
   const hasFilters = jobIdFilter || statusFilter || phoneFilter || fromDate || toDate;
-  const collator = useMemo(() => new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }), []);
-  const sortedJobs = [...jobs].sort((a, b) => {
-    const direction = sortOrder === "asc" ? 1 : -1;
-    const getText = (value?: string | null) => (value || "").toString();
-    const getDate = (value?: string | null) => (value ? new Date(value).getTime() : 0);
-    switch (sortKey) {
-      case "job_id":
-        return collator.compare(getText(a.job_id), getText(b.job_id)) * direction;
-      case "customer_name":
-        return collator.compare(getText(a.customer_name), getText(b.customer_name)) * direction;
-      case "current_status":
-        return collator.compare(getText(statusLabel(a.current_status)), getText(statusLabel(b.current_status))) * direction;
-      case "current_holder_role":
-        return collator.compare(getText(a.current_holder_role), getText(b.current_holder_role)) * direction;
-      case "created_at":
-        return (getDate(a.created_at) - getDate(b.created_at)) * direction;
-      case "last_scan_at":
-      default:
-        return (getDate(a.last_scan_at) - getDate(b.last_scan_at)) * direction;
-    }
-  });
-
-  const totalJobs = sortedJobs.length;
-  const totalPages = Math.max(1, Math.ceil(totalJobs / DEFAULT_PAGE_SIZE));
+  const totalJobs = jobs.length;
+  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
   const safePageIndex = Math.min(pageIndex, totalPages - 1);
-  const pageStart = safePageIndex * DEFAULT_PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + DEFAULT_PAGE_SIZE, totalJobs);
-  const pageJobs = sortedJobs.slice(pageStart, pageEnd);
-
-  useEffect(() => {
-    if (pageIndex !== safePageIndex) {
-      setPageIndex(safePageIndex);
-    }
-  }, [pageIndex, safePageIndex]);
+  const pageStart = safePageIndex * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, totalJobs);
+  const pageJobs = jobs;
 
   const allSelected = pageJobs.length > 0 && pageJobs.every((job) => selectedJobs.includes(job.job_id));
   const selectedLabelCount = selectedJobs.length;
@@ -900,10 +882,21 @@ export default function ItemsPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-slate">
             {totalJobs
-              ? `Showing ${pageStart + 1}-${pageEnd} of ${totalJobs} • Page ${safePageIndex + 1} of ${totalPages}`
+              ? `Showing ${pageStart + 1}-${pageEnd} • Page ${safePageIndex + 1}`
               : "No results to paginate"}
           </div>
           <div className="flex flex-wrap items-center gap-1">
+            <Select
+              value={String(pageSize)}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="w-[92px]"
+            >
+              {[10, 20, 30, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size} / page
+                </option>
+              ))}
+            </Select>
             <Button
               variant="ghost"
               size="sm"

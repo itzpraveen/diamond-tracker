@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.schemas import JobCreate, JobDetail, JobMetric, JobOut, JobScanRequest, JobUpdate, LabelSheetRequest, StatusEventOut
 from app.utils.pdf import generate_label_pdf, generate_label_sheet_pdf
+from app.utils.errors import raise_validation_error
 from app.utils.transitions import (
     STATUS_HOLDER_ROLE,
     allowed_next_statuses,
@@ -153,8 +154,9 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
     event_role = select_role_for_action(user.roles, preferred=[Role.PURCHASE])
     branch = _get_default_branch(db)
     voucher_no = payload.voucher_no.strip()
+    errors = {}
     if not voucher_no:
-        raise HTTPException(status_code=400, detail="Voucher number is required")
+        errors["voucher_no"] = "Voucher number is required"
     factory_id = None
     if payload.factory_id:
         factory = _get_factory_by_uuid(db, payload.factory_id)
@@ -166,6 +168,8 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
             if payload.item_source == ItemSource.REPAIR
             else RepairType.STOCK_REPAIR
         )
+    if errors:
+        raise_validation_error(errors)
     job = ItemJob(
         job_id=_generate_job_id(db),
         branch_id=branch.id,
@@ -214,6 +218,10 @@ def list_jobs(
     batch_id: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     job_id: Optional[str] = Query(default=None),
+    sort_by: Optional[str] = Query(default="created_at"),
+    sort_dir: Optional[str] = Query(default="desc"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY)),
 ):
@@ -234,7 +242,22 @@ def list_jobs(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid batch id") from exc
         query = query.join(BatchItem).filter(BatchItem.batch_id == batch_uuid)
-    return query.order_by(desc(ItemJob.created_at)).limit(200).all()
+
+    sort_map = {
+        "created_at": ItemJob.created_at,
+        "last_scan_at": ItemJob.last_scan_at,
+        "job_id": ItemJob.job_id,
+        "customer_name": ItemJob.customer_name,
+        "current_status": ItemJob.current_status,
+        "current_holder_role": ItemJob.current_holder_role,
+    }
+    sort_column = sort_map.get(sort_by or "created_at", ItemJob.created_at)
+    if (sort_dir or "desc").lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    return query.offset(offset).limit(limit).all()
 
 
 @router.get("/metrics", response_model=list[JobMetric])
@@ -284,8 +307,9 @@ def get_job(job_id: str, db: Session = Depends(get_db), user=Depends(require_rol
 @router.patch("/{job_id}", response_model=JobOut)
 def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.ADMIN)), db: Session = Depends(get_db)):
     job = _get_job_by_code(db, job_id)
+    errors = {}
     if not payload.reason.strip():
-        raise HTTPException(status_code=400, detail="Edit reason required")
+        errors["reason"] = "Edit reason required"
     event_role = select_role_for_action(user.roles, preferred=[Role.ADMIN])
     if payload.factory_id is not None:
         _get_factory_by_uuid(db, payload.factory_id)
@@ -327,10 +351,12 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
             if field == "voucher_no":
                 value = value.strip()
                 if not value:
-                    raise HTTPException(status_code=400, detail="Voucher number is required")
+                    errors["voucher_no"] = "Voucher number is required"
             if old_value != value:
                 changes[field] = {"from": _json_safe(old_value), "to": _json_safe(value)}
                 setattr(job, field, value)
+    if errors:
+        raise_validation_error(errors)
     if not changes:
         return job
 

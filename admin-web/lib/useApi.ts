@@ -43,6 +43,18 @@ export function useApi() {
           logout({ reason: "expired" });
         }
         const text = await response.text();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed?.errors && typeof parsed.errors === "object") {
+              const parts = Object.entries(parsed.errors).map(([field, message]) => `${field}: ${message}`);
+              const prefix = parsed.message ? `${parsed.message} ` : "";
+              throw new Error(prefix + parts.join(", "));
+            }
+          } catch {
+            // Fall back to raw text if parsing fails.
+          }
+        }
         throw new Error(text || "Request failed");
       }
       if (response.status === 204) {
