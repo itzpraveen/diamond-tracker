@@ -16,7 +16,7 @@ router = APIRouter(prefix="/factories", tags=["factories"])
 def list_factories(
     include_inactive: bool = Query(default=False),
     db: Session = Depends(get_db),
-    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH)),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.PURCHASE)),
 ):
     query = db.query(Factory)
     if not include_inactive:
