@@ -497,11 +497,7 @@ export default function ItemsPage() {
   };
 
   const hasFilters = jobIdFilter || statusFilter || phoneFilter || factoryFilter || fromDate || toDate;
-  const totalJobs = jobs.length;
-  const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
-  const safePageIndex = Math.min(pageIndex, totalPages - 1);
-  const pageStart = safePageIndex * pageSize;
-  const pageEnd = Math.min(pageStart + pageSize, totalJobs);
+  const hasMore = jobs.length >= pageSize;
   const pageJobs = jobs;
 
   const allSelected = pageJobs.length > 0 && pageJobs.every((job) => selectedJobs.includes(job.job_id));
@@ -958,8 +954,8 @@ export default function ItemsPage() {
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-xs text-slate">
-            {totalJobs
-              ? `Showing ${pageStart + 1}-${pageEnd} • Page ${safePageIndex + 1}`
+            {pageJobs.length
+              ? `Showing ${pageIndex * pageSize + 1}-${pageIndex * pageSize + pageJobs.length} • Page ${pageIndex + 1}`
               : "No results to paginate"}
           </div>
           <div className="flex flex-wrap items-center gap-1">
@@ -978,7 +974,7 @@ export default function ItemsPage() {
               variant="ghost"
               size="sm"
               onClick={() => setPageIndex(0)}
-              disabled={safePageIndex === 0}
+              disabled={pageIndex === 0}
             >
               First
             </Button>
@@ -986,43 +982,24 @@ export default function ItemsPage() {
               variant="ghost"
               size="sm"
               onClick={() => setPageIndex((prev) => Math.max(prev - 1, 0))}
-              disabled={safePageIndex === 0}
+              disabled={pageIndex === 0}
             >
               Prev
             </Button>
-            {Array.from({ length: totalPages }, (_, i) => i)
-              .filter((index) => Math.abs(index - safePageIndex) <= 2 || index === 0 || index === totalPages - 1)
-              .map((index, idx, arr) => {
-                const prev = arr[idx - 1];
-                const showGap = idx > 0 && index - prev > 1;
-                return (
-                  <span key={`page-${index}`} className="flex items-center gap-1">
-                    {showGap && <span className="px-2 text-xs text-slate">…</span>}
-                    <Button
-                      variant={index === safePageIndex ? "outline" : "ghost"}
-                      size="sm"
-                      onClick={() => setPageIndex(index)}
-                    >
-                      {index + 1}
-                    </Button>
-                  </span>
-                );
-              })}
             <Button
-              variant="ghost"
+              variant={true ? "outline" : "ghost"}
               size="sm"
-              onClick={() => setPageIndex((prev) => Math.min(prev + 1, totalPages - 1))}
-              disabled={safePageIndex >= totalPages - 1}
+              disabled
             >
-              Next
+              {pageIndex + 1}
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setPageIndex(totalPages - 1)}
-              disabled={safePageIndex >= totalPages - 1}
+              onClick={() => setPageIndex((prev) => prev + 1)}
+              disabled={!hasMore}
             >
-              Last
+              Next
             </Button>
           </div>
         </div>
