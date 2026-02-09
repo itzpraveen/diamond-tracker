@@ -79,6 +79,8 @@ class JobCreate(BaseModel):
     target_return_date: Optional[datetime] = None
     factory_id: Optional[UUID] = None
     diamond_cent: Optional[float] = None
+    style_number: Optional[str] = None
+    card_weight: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     notes: Optional[str] = None
 
@@ -96,6 +98,8 @@ class JobUpdate(BaseModel):
     target_return_date: Optional[datetime] = None
     factory_id: Optional[UUID] = None
     diamond_cent: Optional[float] = None
+    style_number: Optional[str] = None
+    card_weight: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     notes: Optional[str] = None
     reason: str
@@ -119,6 +123,8 @@ class JobOut(BaseModel):
     factory_id: Optional[UUID] = None
     factory_name: Optional[str] = None
     diamond_cent: Optional[float] = None
+    style_number: Optional[str] = None
+    card_weight: Optional[float] = None
     photos: Optional[List[PhotoMeta]] = None
     current_status: Status
     current_holder_role: Role
@@ -275,6 +281,19 @@ class UserActivity(BaseModel):
     user_id: UUID
     username: str
     scans: int
+
+
+class ExcelExportRequest(BaseModel):
+    job_ids: List[str]
+
+
+class FactorySummary(BaseModel):
+    factory_id: UUID
+    factory_name: str
+    at_factory: int
+    expected_from_factory: int
+    returned_pending: int
+    total_dispatched: int
 
 
 class FactoryCreate(BaseModel):

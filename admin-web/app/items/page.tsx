@@ -49,6 +49,8 @@ function CreateJobModal({
     approximate_weight: "",
     purchase_value: "",
     voucher_no: "",
+    style_number: "",
+    card_weight: "",
     notes: ""
   });
   const [error, setError] = useState("");
@@ -91,6 +93,8 @@ function CreateJobModal({
           target_return_date: formData.target_return_date ? new Date(formData.target_return_date).toISOString() : null,
           factory_id: formData.factory_id || null,
           diamond_cent: formData.diamond_cent ? parseFloat(formData.diamond_cent) : null,
+          style_number: formData.style_number || null,
+          card_weight: formData.card_weight ? parseFloat(formData.card_weight) : null,
           photos: uploadedPhotos
         })
       });
@@ -336,6 +340,27 @@ function CreateJobModal({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Style Number</label>
+              <Input
+                placeholder="Style number"
+                value={formData.style_number}
+                onChange={(e) => setFormData({ ...formData, style_number: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium">Card Weight (g)</label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Card weight"
+                value={formData.card_weight}
+                onChange={(e) => setFormData({ ...formData, card_weight: e.target.value })}
+              />
+            </div>
+          </div>
+
           <div>
             <label className="mb-1.5 block text-sm font-medium">Notes</label>
             <Textarea
@@ -414,6 +439,7 @@ export default function ItemsPage() {
   const [jobIdFilter, setJobIdFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [phoneFilter, setPhoneFilter] = useState("");
+  const [factoryFilter, setFactoryFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -429,6 +455,7 @@ export default function ItemsPage() {
     if (phoneFilter) params.append("phone", phoneFilter);
     if (fromDate) params.append("from_date", new Date(fromDate).toISOString());
     if (toDate) params.append("to_date", new Date(toDate).toISOString());
+    if (factoryFilter) params.append("factory_id", factoryFilter);
     params.append("sort_by", sortKey);
     params.append("sort_dir", sortOrder);
     params.append("limit", String(pageSize));
@@ -437,12 +464,18 @@ export default function ItemsPage() {
   };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder, pageIndex, pageSize],
+    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, sortKey, sortOrder, pageIndex, pageSize],
     queryFn: () => {
       const queryString = buildQueryParams();
       return request<any[]>(`/jobs?${queryString}`);
     }
   });
+
+  const factoriesQuery = useQuery({
+    queryKey: ["factories"],
+    queryFn: () => request<any[]>("/factories")
+  });
+  const factories = factoriesQuery.data || [];
 
   const jobs = jobsQuery.data || [];
 
@@ -452,17 +485,18 @@ export default function ItemsPage() {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [jobIdFilter, statusFilter, phoneFilter, fromDate, toDate, sortKey, sortOrder, pageSize]);
+  }, [jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, sortKey, sortOrder, pageSize]);
 
   const clearFilters = () => {
     setJobIdFilter("");
     setStatusFilter("");
     setPhoneFilter("");
+    setFactoryFilter("");
     setFromDate("");
     setToDate("");
   };
 
-  const hasFilters = jobIdFilter || statusFilter || phoneFilter || fromDate || toDate;
+  const hasFilters = jobIdFilter || statusFilter || phoneFilter || factoryFilter || fromDate || toDate;
   const totalJobs = jobs.length;
   const totalPages = Math.max(1, Math.ceil(totalJobs / pageSize));
   const safePageIndex = Math.min(pageIndex, totalPages - 1);
@@ -569,6 +603,28 @@ export default function ItemsPage() {
     }
   };
 
+  const handleDownloadExcel = async () => {
+    const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
+    if (!selectedJobIds.length) return;
+    setDownloadError("");
+    try {
+      const blob = await requestBlob("/reports/export.xlsx", {
+        method: "POST",
+        body: JSON.stringify({ job_ids: selectedJobIds })
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `items-export-${selectedJobIds.length}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Unable to download Excel");
+    }
+  };
+
   return (
     <AppShell>
       <Card className="space-y-5">
@@ -630,6 +686,14 @@ export default function ItemsPage() {
                 >
                   {selectedLabelCount ? `Print ${selectedLabelCount} (A4)` : "Print A4"}
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadExcel}
+                  disabled={!selectedLabelCount}
+                >
+                  {selectedLabelCount ? `Excel ${selectedLabelCount}` : "Excel"}
+                </Button>
               </div>
             </div>
             <Button size="sm" onClick={() => setShowCreateModal(true)}>
@@ -653,7 +717,7 @@ export default function ItemsPage() {
                 </button>
               )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate">Job ID</label>
                 <Input
@@ -672,6 +736,20 @@ export default function ItemsPage() {
                   {statuses.map((s) => (
                     <option key={s} value={s}>
                       {statusLabel(s)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate">Factory</label>
+                <Select
+                  value={factoryFilter}
+                  onChange={(e) => setFactoryFilter(e.target.value)}
+                >
+                  <option value="">All Factories</option>
+                  {factories.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
                     </option>
                   ))}
                 </Select>

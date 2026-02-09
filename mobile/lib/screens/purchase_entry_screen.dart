@@ -28,6 +28,8 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
   final _phoneController = TextEditingController();
   final _weightController = TextEditingController();
   final _diamondCentController = TextEditingController();
+  final _styleNumberController = TextEditingController();
+  final _cardWeightController = TextEditingController();
   final _valueController = TextEditingController();
   final _workNarrationController = TextEditingController();
   final _targetReturnController = TextEditingController();
@@ -48,6 +50,8 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     _phoneController.dispose();
     _weightController.dispose();
     _diamondCentController.dispose();
+    _styleNumberController.dispose();
+    _cardWeightController.dispose();
     _valueController.dispose();
     _workNarrationController.dispose();
     _targetReturnController.dispose();
@@ -213,6 +217,32 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
                             controller: _diamondCentController,
                             label: 'Diamond Cent',
                             prefixIcon: Icons.auto_awesome,
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                            ],
+                            enabled: !_submitting,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: MajesticTextField(
+                            controller: _styleNumberController,
+                            label: 'Style Number',
+                            hint: 'e.g. ST-001',
+                            prefixIcon: Icons.style_outlined,
+                            enabled: !_submitting,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: MajesticTextField(
+                            controller: _cardWeightController,
+                            label: 'Card Weight (g)',
+                            prefixIcon: Icons.monitor_weight_outlined,
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             inputFormatters: [
                               FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
@@ -402,11 +432,13 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
       final repo = ref.read(jobRepositoryProvider);
       final weight = double.tryParse(_weightController.text.trim());
       final diamondCent = double.tryParse(_diamondCentController.text.trim());
+      final cardWeight = double.tryParse(_cardWeightController.text.trim());
       final value = double.tryParse(_valueController.text.trim());
       if (_offline) {
         final jobId = await _queueOfflineJob(
           weight: weight,
           diamondCent: diamondCent,
+          cardWeight: cardWeight,
           value: value,
         );
         if (!context.mounted) return;
@@ -424,12 +456,15 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
         uploads.add(uploaded);
       }
 
+      final styleNumber = _styleNumberController.text.trim();
       final job = await repo.createJob({
         'item_description': _descriptionController.text.trim(),
         'customer_name': _customerController.text.trim(),
         'customer_phone': _phoneController.text.trim(),
         'approximate_weight': weight,
         'diamond_cent': diamondCent,
+        'style_number': styleNumber.isEmpty ? null : styleNumber,
+        'card_weight': cardWeight,
         'purchase_value': value,
         'item_source': _itemSource,
         'repair_type': _repairType,
@@ -481,6 +516,8 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     _phoneController.clear();
     _weightController.clear();
     _diamondCentController.clear();
+    _styleNumberController.clear();
+    _cardWeightController.clear();
     _valueController.clear();
     _workNarrationController.clear();
     _targetReturnController.clear();
@@ -493,15 +530,18 @@ class _PurchaseEntryScreenState extends ConsumerState<PurchaseEntryScreen> {
     });
   }
 
-  Future<String> _queueOfflineJob({double? weight, double? diamondCent, double? value}) async {
+  Future<String> _queueOfflineJob({double? weight, double? diamondCent, double? cardWeight, double? value}) async {
     final repo = ref.read(jobRepositoryProvider);
     final db = ref.read(dbProvider);
+    final styleNumber = _styleNumberController.text.trim();
     final payload = {
       'item_description': _descriptionController.text.trim(),
       'customer_name': _customerController.text.trim(),
       'customer_phone': _phoneController.text.trim(),
       'approximate_weight': weight,
       'diamond_cent': diamondCent,
+      'style_number': styleNumber.isEmpty ? null : styleNumber,
+      'card_weight': cardWeight,
       'purchase_value': value,
       'item_source': _itemSource,
       'repair_type': _repairType,

@@ -185,6 +185,8 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
         target_return_date=payload.target_return_date,
         factory_id=factory_id,
         diamond_cent=payload.diamond_cent,
+        style_number=payload.style_number,
+        card_weight=payload.card_weight,
         photos=[photo.model_dump() for photo in payload.photos] if payload.photos else [],
         current_status=Status.PURCHASED,
         current_holder_role=Role.PURCHASE,
@@ -216,6 +218,7 @@ def list_jobs(
     from_date: Optional[datetime] = Query(default=None),
     to_date: Optional[datetime] = Query(default=None),
     batch_id: Optional[str] = Query(default=None),
+    factory_id: Optional[str] = Query(default=None),
     phone: Optional[str] = Query(default=None),
     job_id: Optional[str] = Query(default=None),
     sort_by: Optional[str] = Query(default="created_at"),
@@ -236,6 +239,12 @@ def list_jobs(
         query = query.filter(ItemJob.customer_phone.ilike(f"%{phone}%"))
     if job_id:
         query = query.filter(ItemJob.job_id.ilike(f"%{job_id}%"))
+    if factory_id:
+        try:
+            factory_uuid = uuid.UUID(factory_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid factory id") from exc
+        query = query.filter(ItemJob.factory_id == factory_uuid)
     if batch_id:
         try:
             batch_uuid = uuid.UUID(batch_id)
@@ -340,6 +349,8 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
         "target_return_date",
         "factory_id",
         "diamond_cent",
+        "style_number",
+        "card_weight",
         "photos",
         "notes",
     ]:

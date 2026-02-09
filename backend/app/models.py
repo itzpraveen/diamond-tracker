@@ -148,6 +148,8 @@ class ItemJob(Base):
     target_return_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     factory_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("factories.id"), nullable=True)
     diamond_cent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    style_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    card_weight: Mapped[float | None] = mapped_column(Float, nullable=True)
     photos: Mapped[list | None] = mapped_column(JSONB, default=list)
     current_status: Mapped[Status] = mapped_column(STATUS_ENUM)
     current_holder_role: Mapped[Role] = mapped_column(ROLE_ENUM)

@@ -14,7 +14,7 @@ import { useApi } from "@/lib/useApi";
 import { useQuery } from "@tanstack/react-query";
 
 export default function ReportsPage() {
-  const { request } = useApi();
+  const { request, requestBlob } = useApi();
   const [windowDays, setWindowDays] = useState("3");
   const [showAllBatches, setShowAllBatches] = useState(false);
   const delaysQuery = useQuery({
@@ -31,6 +31,34 @@ export default function ReportsPage() {
     queryFn: () => request<any>(`/reports/repair-targets?window_days=${windowDaysValue}`)
   });
 
+  const factorySummaryQuery = useQuery({
+    queryKey: ["reports", "factory-summary"],
+    queryFn: () => request<any[]>("/reports/factory-summary")
+  });
+  const factorySummaries = factorySummaryQuery.data || [];
+
+  const handleFactoryExport = async (factoryId: string, factoryName: string) => {
+    try {
+      const jobsForFactory = await request<any[]>(`/jobs?factory_id=${factoryId}&limit=200`);
+      if (!jobsForFactory?.length) return;
+      const jobIds = jobsForFactory.map((j) => j.job_id);
+      const blob = await requestBlob("/reports/export.xlsx", {
+        method: "POST",
+        body: JSON.stringify({ job_ids: jobIds })
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `factory-${factoryName.replace(/\s+/g, "-")}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // silently fail — user can retry
+    }
+  };
+
   const exportCsv = (type: string) => {
     const base = getApiBaseUrl();
     window.open(`${base}/reports/export.csv?type=${type}`, "_blank");
@@ -39,6 +67,7 @@ export default function ReportsPage() {
   const refreshAll = () => {
     delaysQuery.refetch();
     repairTargetsQuery.refetch();
+    factorySummaryQuery.refetch();
   };
 
   const formatDueWindow = (target?: string | null) => {
@@ -364,6 +393,66 @@ export default function ReportsPage() {
             )}
           </div>
         </div>
+      </Card>
+
+      <Card className="mt-6 space-y-6">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate">Factory Reports</p>
+          <h2 className="text-xl font-semibold font-display">Factory Summary</h2>
+          <p className="mt-2 text-sm text-slate">
+            Balance stock, expected quantities, and returned items per factory.
+          </p>
+        </div>
+        {factorySummaryQuery.isLoading ? (
+          <div className="h-12 animate-pulse rounded-xl bg-sand/70" />
+        ) : factorySummaries.length ? (
+          <Table>
+            <THead>
+              <TR>
+                <TH>Factory</TH>
+                <TH>At Factory</TH>
+                <TH>Expected Back</TH>
+                <TH>Returned Pending</TH>
+                <TH>Total Dispatched</TH>
+                <TH>Action</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {factorySummaries.map((fs: any) => (
+                <TR key={fs.factory_id}>
+                  <TD className="font-medium">{fs.factory_name}</TD>
+                  <TD>
+                    <Badge variant={fs.at_factory > 0 ? "info" : "default"} size="sm">
+                      {fs.at_factory}
+                    </Badge>
+                  </TD>
+                  <TD>
+                    <Badge variant={fs.expected_from_factory > 0 ? "warning" : "default"} size="sm">
+                      {fs.expected_from_factory}
+                    </Badge>
+                  </TD>
+                  <TD>
+                    <Badge variant={fs.returned_pending > 0 ? "success" : "default"} size="sm">
+                      {fs.returned_pending}
+                    </Badge>
+                  </TD>
+                  <TD>{fs.total_dispatched}</TD>
+                  <TD>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleFactoryExport(fs.factory_id, fs.factory_name)}
+                    >
+                      Export
+                    </Button>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        ) : (
+          <p className="text-sm text-slate">No factory data available.</p>
+        )}
       </Card>
     </AppShell>
   );

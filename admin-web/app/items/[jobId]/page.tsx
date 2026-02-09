@@ -58,6 +58,8 @@ function EditJobModal({
     target_return_date: job.target_return_date ? new Date(job.target_return_date).toISOString().slice(0, 10) : "",
     factory_id: job.factory_id || "",
     diamond_cent: job.diamond_cent?.toString() || "",
+    style_number: job.style_number || "",
+    card_weight: job.card_weight?.toString() || "",
     approximate_weight: job.approximate_weight?.toString() || "",
     purchase_value: job.purchase_value?.toString() || "",
     voucher_no: job.voucher_no || "",
@@ -88,6 +90,8 @@ function EditJobModal({
           target_return_date: formData.target_return_date ? new Date(formData.target_return_date).toISOString() : null,
           factory_id: formData.factory_id || null,
           diamond_cent: formData.diamond_cent ? parseFloat(formData.diamond_cent) : null,
+          style_number: formData.style_number || null,
+          card_weight: formData.card_weight ? parseFloat(formData.card_weight) : null,
           notes: formData.notes || null,
           reason: formData.reason
         })
@@ -264,6 +268,26 @@ function EditJobModal({
               value={formData.voucher_no}
               onChange={(e) => setFormData({ ...formData, voucher_no: e.target.value })}
             />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Style Number</label>
+              <Input
+                placeholder="Style number"
+                value={formData.style_number}
+                onChange={(e) => setFormData({ ...formData, style_number: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Card Weight (g)</label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Card weight"
+                value={formData.card_weight}
+                onChange={(e) => setFormData({ ...formData, card_weight: e.target.value })}
+              />
+            </div>
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Notes</label>
@@ -525,6 +549,14 @@ export default function ItemDetailPage() {
               <p className="font-medium">
                 {job?.diamond_cent === null || job?.diamond_cent === undefined ? "-" : `${job.diamond_cent}c`}
               </p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Style Number</p>
+              <p className="font-medium">{job?.style_number || "-"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500">Card Weight</p>
+              <p className="font-medium">{job?.card_weight ? `${job.card_weight}g` : "-"}</p>
             </div>
             <div>
               <p className="text-xs text-slate-500">Weight</p>

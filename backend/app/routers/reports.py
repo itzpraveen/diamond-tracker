@@ -1,17 +1,26 @@
 import csv
 from datetime import datetime, timedelta, timezone
-from io import StringIO
+from io import BytesIO, StringIO
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, Incident, ItemJob, Role, Status, StatusEvent, User
-from app.schemas import AgingBucket, BatchDelay, JobOut, RepairTrackingReport, TurnaroundMetrics, UserActivity
+from app.models import Batch, Factory, Incident, ItemJob, Role, Status, StatusEvent, User
+from app.schemas import (
+    AgingBucket,
+    BatchDelay,
+    ExcelExportRequest,
+    FactorySummary,
+    JobOut,
+    RepairTrackingReport,
+    TurnaroundMetrics,
+    UserActivity,
+)
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -211,6 +220,112 @@ def user_activity(db: Session = Depends(get_db), user=Depends(require_roles(Role
         .all()
     )
     return [UserActivity(user_id=row[0], username=row[1], scans=row[2]) for row in rows]
+
+
+@router.post("/export.xlsx")
+def export_xlsx(
+    payload: ExcelExportRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.DISPATCH)),
+):
+    from openpyxl import Workbook
+
+    if not payload.job_ids:
+        raise HTTPException(status_code=400, detail="job_ids is required")
+    jobs = (
+        db.query(ItemJob)
+        .options(selectinload(ItemJob.factory))
+        .filter(ItemJob.job_id.in_(payload.job_ids))
+        .all()
+    )
+    if not jobs:
+        raise HTTPException(status_code=404, detail="No matching jobs found")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Items"
+    columns = [
+        "Job ID", "Voucher No", "Customer Name", "Phone", "Item Description",
+        "Style Number", "Card Weight", "Physical Weight", "Diamond Cent",
+        "Purchase Value", "Factory", "Status", "Work Narration", "Item Source",
+        "Repair Type", "Target Return Date", "Created At",
+    ]
+    ws.append(columns)
+    for job in jobs:
+        ws.append([
+            job.job_id,
+            job.voucher_no,
+            job.customer_name,
+            job.customer_phone,
+            job.item_description,
+            job.style_number,
+            job.card_weight,
+            job.approximate_weight,
+            job.diamond_cent,
+            job.purchase_value,
+            job.factory.name if job.factory else None,
+            job.current_status.value if job.current_status else None,
+            job.work_narration,
+            job.item_source.value if job.item_source else None,
+            job.repair_type.value if job.repair_type else None,
+            job.target_return_date.isoformat() if job.target_return_date else None,
+            job.created_at.isoformat() if job.created_at else None,
+        ])
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    headers = {"Content-Disposition": 'attachment; filename="items-export.xlsx"'}
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get("/factory-summary", response_model=List[FactorySummary])
+def factory_summary(
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY)),
+):
+    at_factory_statuses = [Status.DISPATCHED_TO_FACTORY, Status.RECEIVED_AT_FACTORY]
+    expected_statuses = [Status.RECEIVED_AT_FACTORY]
+    returned_statuses = [Status.RETURNED_FROM_FACTORY]
+    dispatched_statuses = [
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.DELIVERED_TO_CUSTOMER,
+    ]
+
+    rows = (
+        db.query(
+            Factory.id.label("factory_id"),
+            Factory.name.label("factory_name"),
+            func.sum(case((ItemJob.current_status.in_(at_factory_statuses), 1), else_=0)).label("at_factory"),
+            func.sum(case((ItemJob.current_status.in_(expected_statuses), 1), else_=0)).label("expected_from_factory"),
+            func.sum(case((ItemJob.current_status.in_(returned_statuses), 1), else_=0)).label("returned_pending"),
+            func.sum(case((ItemJob.current_status.in_(dispatched_statuses), 1), else_=0)).label("total_dispatched"),
+        )
+        .join(ItemJob, ItemJob.factory_id == Factory.id)
+        .group_by(Factory.id, Factory.name)
+        .all()
+    )
+
+    return [
+        FactorySummary(
+            factory_id=row.factory_id,
+            factory_name=row.factory_name,
+            at_factory=int(row.at_factory or 0),
+            expected_from_factory=int(row.expected_from_factory or 0),
+            returned_pending=int(row.returned_pending or 0),
+            total_dispatched=int(row.total_dispatched or 0),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/export.csv")
