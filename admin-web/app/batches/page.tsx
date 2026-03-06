@@ -25,6 +25,42 @@ function downloadBlob(blob: Blob, filename: string) {
   window.URL.revokeObjectURL(url);
 }
 
+function formatDate(value?: string | Date | null) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
+}
+
+function formatDateTime(value?: string | Date | null) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+function toDateInputValue(value?: string | Date | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 10);
+}
+
 function BatchDetailModal({
   batchId,
   onClose
@@ -150,6 +186,14 @@ function BatchDetailModal({
     setSelectedFactoryId(batch?.factory_id || "");
   }, [batch?.factory_id]);
 
+  useEffect(() => {
+    if (!batch) {
+      return;
+    }
+    setDispatchDate(batch.dispatch_date ? toDateInputValue(batch.dispatch_date) : toDateInputValue(new Date()));
+    setExpectedReturn(batch.expected_return_date ? toDateInputValue(batch.expected_return_date) : "");
+  }, [batch?.id, batch?.dispatch_date, batch?.expected_return_date]);
+
   const canAddItems = batch?.status === "CREATED";
   const canDispatch = batch?.status === "CREATED" && batch?.item_count > 0;
   const canClose = batch?.status === "DISPATCHED";
@@ -202,7 +246,7 @@ function BatchDetailModal({
           </Button>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:grid-cols-4">
+        <div className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:grid-cols-3 lg:grid-cols-5">
           <div>
             <p className="text-xs text-slate">Items</p>
             <p className="mt-1 text-lg font-semibold">{batch?.item_count || 0}</p>
@@ -212,15 +256,19 @@ function BatchDetailModal({
             <p className="mt-1 font-medium">{batch?.factory_name || "-"}</p>
           </div>
           <div>
-            <p className="text-xs text-slate">Dispatch Date</p>
+            <p className="text-xs text-slate">Created At</p>
             <p className="mt-1 font-medium">
-              {batch?.dispatch_date ? new Date(batch.dispatch_date).toLocaleDateString() : "-"}
+              {formatDateTime(batch?.created_at)}
             </p>
           </div>
           <div>
-            <p className="text-xs text-slate">Expected Return</p>
+            <p className="text-xs text-slate">Issued At</p>
+            <p className="mt-1 font-medium">{formatDateTime(batch?.dispatch_date)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate">Return By</p>
             <p className="mt-1 font-medium">
-              {batch?.expected_return_date ? new Date(batch.expected_return_date).toLocaleDateString() : "-"}
+              {formatDate(batch?.expected_return_date)}
             </p>
           </div>
         </div>
@@ -300,7 +348,7 @@ function BatchDetailModal({
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate">Dispatch Date</label>
+                    <label className="mb-1.5 block text-xs font-medium text-slate">Issue Date</label>
                     <Input
                       type="date"
                       value={dispatchDate}
@@ -468,11 +516,10 @@ function BatchDetailModal({
 
 export default function BatchesPage() {
   const { request } = useApi();
-  const [month, setMonth] = useState("");
-  const [year, setYear] = useState("");
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
   const [createError, setCreateError] = useState("");
+  const [todayLabel, setTodayLabel] = useState("");
 
   const batchesQuery = useQuery({
     queryKey: ["batches"],
@@ -485,13 +532,11 @@ export default function BatchesPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (factoryId: string) =>
       request("/batches", {
         method: "POST",
         body: JSON.stringify({
-          month: month ? Number(month) : undefined,
-          year: year ? Number(year) : undefined,
-          factory_id: selectedCreateFactoryId || undefined
+          factory_id: factoryId || undefined
         })
       }),
     onSuccess: (createdVoucher: any) => {
@@ -506,23 +551,36 @@ export default function BatchesPage() {
 
   const batches = batchesQuery.data || [];
   const factories = factoriesQuery.data || [];
+  const activeFactories = factories.filter((factory) => factory.is_active !== false);
+  const selectedCreateFactoryName =
+    activeFactories.find((factory) => factory.id === selectedCreateFactoryId)?.name || "";
 
   useEffect(() => {
-    if (!factories.length) {
+    if (!activeFactories.length) {
       setSelectedCreateFactoryId("");
       return;
     }
-    if (!selectedCreateFactoryId || !factories.some((factory) => factory.id === selectedCreateFactoryId)) {
-      setSelectedCreateFactoryId(factories[0].id);
+    if (
+      !selectedCreateFactoryId ||
+      !activeFactories.some((factory) => factory.id === selectedCreateFactoryId)
+    ) {
+      setSelectedCreateFactoryId(activeFactories[0].id);
     }
-  }, [factories, selectedCreateFactoryId]);
+  }, [activeFactories, selectedCreateFactoryId]);
 
-  const handleCreateVoucher = () => {
-    if (!selectedCreateFactoryId) {
+  useEffect(() => {
+    setTodayLabel(formatDateTime(new Date()));
+  }, []);
+
+  const handleCreateVoucher = (factoryId?: string) => {
+    const targetFactoryId = factoryId || selectedCreateFactoryId;
+    if (!targetFactoryId) {
       setCreateError("Select a factory before creating a voucher");
       return;
     }
-    createMutation.mutate();
+    setSelectedCreateFactoryId(targetFactoryId);
+    setCreateError("");
+    createMutation.mutate(targetFactoryId);
   };
 
   return (
@@ -535,45 +593,71 @@ export default function BatchesPage() {
             <CardDescription>Create multiple factory-specific vouchers per day, fix scan mistakes, and export Excel.</CardDescription>
           </div>
           <RoleGate roles={["Admin", "Dispatch"]}>
-            <div className="flex flex-wrap items-end gap-2 rounded-xl border border-ink/8 bg-sand/30 p-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate">Month</label>
-                <Input
-                  placeholder="1-12"
-                  className="w-20"
-                  value={month}
-                  onChange={(e) => setMonth(e.target.value)}
-                />
+            <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:min-w-[28rem]">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate">Quick Create</p>
+                  <p className="mt-1 text-sm font-medium text-ink">Choose a factory and open a voucher immediately.</p>
+                  <p className="mt-1 text-xs text-slate">Voucher number and created time are assigned automatically.</p>
+                </div>
+                <div className="rounded-xl border border-ink/8 bg-white/80 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate">Today</p>
+                  <p className="mt-1 text-sm font-medium text-ink">{todayLabel || "Set automatically on create"}</p>
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate">Year</label>
-                <Input
-                  placeholder="2026"
-                  className="w-24"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                />
-              </div>
-              <div className="min-w-[12rem]">
-                <label className="mb-1 block text-xs font-medium text-slate">Factory</label>
-                <Select
-                  value={selectedCreateFactoryId}
-                  onChange={(e) => {
-                    setSelectedCreateFactoryId(e.target.value);
-                    setCreateError("");
-                  }}
-                >
-                  <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
-                  {factories.map((factory) => (
-                    <option key={factory.id} value={factory.id}>
-                      {factory.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <Button size="sm" onClick={handleCreateVoucher} disabled={createMutation.isPending || !selectedCreateFactoryId}>
-                {createMutation.isPending ? "Creating..." : "Create Voucher"}
-              </Button>
+              {activeFactories.length ? (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {activeFactories.map((factory) => (
+                      <Button
+                        key={factory.id}
+                        size="sm"
+                        variant={factory.id === selectedCreateFactoryId ? "primary" : "outline"}
+                        onClick={() => handleCreateVoucher(factory.id)}
+                        disabled={createMutation.isPending}
+                      >
+                        {createMutation.isPending && factory.id === selectedCreateFactoryId
+                          ? "Creating..."
+                          : `New ${factory.name} Voucher`}
+                      </Button>
+                    ))}
+                  </div>
+                  {activeFactories.length > 1 && (
+                    <div className="flex flex-col gap-2 border-t border-ink/8 pt-3 sm:flex-row sm:items-end">
+                      <div className="min-w-[12rem] flex-1">
+                        <label className="mb-1 block text-xs font-medium text-slate">Selected factory</label>
+                        <Select
+                          value={selectedCreateFactoryId}
+                          onChange={(e) => {
+                            setSelectedCreateFactoryId(e.target.value);
+                            setCreateError("");
+                          }}
+                        >
+                          {activeFactories.map((factory) => (
+                            <option key={factory.id} value={factory.id}>
+                              {factory.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleCreateVoucher()}
+                        disabled={createMutation.isPending || !selectedCreateFactoryId}
+                      >
+                        {createMutation.isPending
+                          ? "Creating..."
+                          : `Create ${selectedCreateFactoryName || "Voucher"}`}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl border border-ink/8 bg-white/70 px-3 py-3 text-sm text-slate">
+                  No active factories available. Add or activate a factory in Settings first.
+                </div>
+              )}
             </div>
           </RoleGate>
         </div>
@@ -591,8 +675,8 @@ export default function BatchesPage() {
                 <TH>Voucher</TH>
                 <TH>Status</TH>
                 <TH>Factory</TH>
-                <TH>Dispatch Date</TH>
-                <TH>Expected Return</TH>
+                <TH>Created At</TH>
+                <TH>Issued At</TH>
                 <TH>Items</TH>
                 <TH>Actions</TH>
               </TR>
@@ -605,12 +689,8 @@ export default function BatchesPage() {
                     <StatusBadge status={batch.status} />
                   </TD>
                   <TD className="text-slate">{batch.factory_name || "-"}</TD>
-                  <TD className="text-slate">
-                    {batch.dispatch_date ? new Date(batch.dispatch_date).toLocaleDateString() : "-"}
-                  </TD>
-                  <TD className="text-slate">
-                    {batch.expected_return_date ? new Date(batch.expected_return_date).toLocaleDateString() : "-"}
-                  </TD>
+                  <TD className="text-slate">{formatDateTime(batch.created_at)}</TD>
+                  <TD className="text-slate">{formatDateTime(batch.dispatch_date)}</TD>
                   <TD>{batch.item_count}</TD>
                   <TD>
                     <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
@@ -635,11 +715,11 @@ export default function BatchesPage() {
               </div>
               <div className="space-y-1 border-t border-ink/6 pt-3">
                 <MobileTableRow label="Items">{batch.item_count}</MobileTableRow>
-                <MobileTableRow label="Dispatch">
-                  {batch.dispatch_date ? new Date(batch.dispatch_date).toLocaleDateString() : "-"}
+                <MobileTableRow label="Created">
+                  {formatDateTime(batch.created_at)}
                 </MobileTableRow>
-                <MobileTableRow label="Return">
-                  {batch.expected_return_date ? new Date(batch.expected_return_date).toLocaleDateString() : "-"}
+                <MobileTableRow label="Issued">
+                  {formatDateTime(batch.dispatch_date)}
                 </MobileTableRow>
               </div>
               <div className="mt-3 border-t border-ink/6 pt-3">
