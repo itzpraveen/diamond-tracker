@@ -18,6 +18,27 @@ from app.utils.vouchers import format_voucher_code, next_voucher_sequence
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 
+MANIFEST_ITEM_COLUMNS = [
+    "Job ID",
+    "Item Details",
+    "Total Weight",
+    "Total Carat",
+    "Total Value",
+    "Voucher No",
+    "Customer Name",
+    "Phone",
+    "Style Number",
+    "Card Weight",
+    "Factory",
+    "Status",
+    "Work Narration",
+    "Item Source",
+    "Repair Type",
+    "Target Return Date",
+    "Created At",
+    "Added To Voucher At",
+]
+
 
 def _get_default_branch(db: Session) -> Branch:
     branch = db.query(Branch).first()
@@ -110,6 +131,106 @@ def _remove_batch_item(batch: Batch, batch_item: BatchItem, user) -> None:
         )
     )
     db.delete(batch_item)
+
+
+def _sorted_batch_items(batch: Batch) -> list[BatchItem]:
+    return sorted(
+        batch.items,
+        key=lambda item: item.added_at or datetime.min.replace(tzinfo=timezone.utc),
+    )
+
+
+def _build_manifest_workbook(batch: Batch):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    items = _sorted_batch_items(batch)
+    total_weight = sum(float(item.job.approximate_weight or 0) for item in items if item.job)
+    total_carat = sum(float(item.job.diamond_cent or 0) / 100 for item in items if item.job)
+    total_amount = sum(float(item.job.purchase_value or 0) for item in items if item.job)
+
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Voucher"
+    summary.append(["Field", "Value"])
+    summary["A1"].font = Font(bold=True)
+    summary["B1"].font = Font(bold=True)
+    summary_rows = [
+        ("Voucher Code", batch.batch_code),
+        ("Status", batch.status.value if batch.status else None),
+        ("Factory", batch.factory_name),
+        ("Created At", batch.created_at.isoformat() if batch.created_at else None),
+        ("Dispatch Date", batch.dispatch_date.isoformat() if batch.dispatch_date else None),
+        ("Expected Return", batch.expected_return_date.isoformat() if batch.expected_return_date else None),
+        ("Item Count", batch.item_count),
+        ("Total Weight (g)", total_weight),
+        ("Total Carat (ct)", total_carat),
+        ("Total Value/Amount", total_amount),
+    ]
+    for row in summary_rows:
+        summary.append(list(row))
+    for row_idx in range(2, summary.max_row + 1):
+        summary.cell(row=row_idx, column=1).font = Font(bold=True)
+    for label in ("Total Weight (g)", "Total Carat (ct)", "Total Value/Amount"):
+        for row_idx in range(2, summary.max_row + 1):
+            if summary.cell(row=row_idx, column=1).value == label:
+                summary.cell(row=row_idx, column=2).number_format = "#,##0.00"
+                break
+    summary.column_dimensions["A"].width = 22
+    summary.column_dimensions["B"].width = 24
+
+    ws = wb.create_sheet("Items")
+    ws.append(MANIFEST_ITEM_COLUMNS)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+
+    for batch_item in items:
+        job = batch_item.job
+        item_carat = float(job.diamond_cent or 0) / 100 if job.diamond_cent is not None else None
+        ws.append([
+            job.job_id,
+            job.item_description,
+            job.approximate_weight,
+            item_carat,
+            job.purchase_value,
+            job.voucher_no,
+            job.customer_name,
+            job.customer_phone,
+            job.style_number,
+            job.card_weight,
+            job.factory_name or batch.factory_name,
+            job.current_status.value if job.current_status else None,
+            job.work_narration,
+            job.item_source.value if job.item_source else None,
+            job.repair_type.value if job.repair_type else None,
+            job.target_return_date.isoformat() if job.target_return_date else None,
+            job.created_at.isoformat() if job.created_at else None,
+            batch_item.added_at.isoformat() if batch_item.added_at else None,
+        ])
+        current_row = ws.max_row
+        for column_idx in (3, 4, 5, 10):
+            ws.cell(row=current_row, column=column_idx).number_format = "#,##0.00"
+
+    ws.auto_filter.ref = f"A1:R{max(ws.max_row, 1)}"
+
+    totals_start_row = ws.max_row + 2
+    ws.cell(row=totals_start_row, column=1, value="Aggregate Totals").font = Font(bold=True)
+
+    totals_rows = [
+        ("Total Weight (g)", total_weight),
+        ("Total Carat (ct)", total_carat),
+        ("Total Value/Amount", total_amount),
+    ]
+    for offset, (label, value) in enumerate(totals_rows, start=1):
+        label_cell = ws.cell(row=totals_start_row + offset, column=1, value=label)
+        value_cell = ws.cell(row=totals_start_row + offset, column=2, value=value)
+        label_cell.font = Font(bold=True)
+        value_cell.font = Font(bold=True)
+        value_cell.number_format = "#,##0.00"
+
+    wb.active = wb.index(ws)
+    return wb
 
 
 @router.post("", response_model=BatchOut)
@@ -304,69 +425,8 @@ def get_manifest(batch_id: str, db: Session = Depends(get_db), user=Depends(requ
 
 @router.get("/{batch_id}/manifest.xlsx")
 def get_manifest_xlsx(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
-    from openpyxl import Workbook
-
     batch = _get_batch(db, batch_id, with_items=True, with_factory=True)
-
-    wb = Workbook()
-    summary = wb.active
-    summary.title = "Voucher"
-    summary.append(["Field", "Value"])
-    summary_rows = [
-        ("Voucher Code", batch.batch_code),
-        ("Status", batch.status.value if batch.status else None),
-        ("Factory", batch.factory_name),
-        ("Created At", batch.created_at.isoformat() if batch.created_at else None),
-        ("Dispatch Date", batch.dispatch_date.isoformat() if batch.dispatch_date else None),
-        ("Expected Return", batch.expected_return_date.isoformat() if batch.expected_return_date else None),
-        ("Item Count", batch.item_count),
-    ]
-    for row in summary_rows:
-        summary.append(list(row))
-
-    ws = wb.create_sheet("Items")
-    ws.append([
-        "Job ID",
-        "Voucher No",
-        "Customer Name",
-        "Phone",
-        "Item Description",
-        "Style Number",
-        "Card Weight",
-        "Physical Weight",
-        "Diamond Cent",
-        "Purchase Value",
-        "Factory",
-        "Status",
-        "Work Narration",
-        "Item Source",
-        "Repair Type",
-        "Target Return Date",
-        "Created At",
-        "Added To Voucher At",
-    ])
-    for batch_item in sorted(batch.items, key=lambda item: item.added_at or datetime.min.replace(tzinfo=timezone.utc)):
-        job = batch_item.job
-        ws.append([
-            job.job_id,
-            job.voucher_no,
-            job.customer_name,
-            job.customer_phone,
-            job.item_description,
-            job.style_number,
-            job.card_weight,
-            job.approximate_weight,
-            job.diamond_cent,
-            job.purchase_value,
-            job.factory_name or batch.factory_name,
-            job.current_status.value if job.current_status else None,
-            job.work_narration,
-            job.item_source.value if job.item_source else None,
-            job.repair_type.value if job.repair_type else None,
-            job.target_return_date.isoformat() if job.target_return_date else None,
-            job.created_at.isoformat() if job.created_at else None,
-            batch_item.added_at.isoformat() if batch_item.added_at else None,
-        ])
+    wb = _build_manifest_workbook(batch)
 
     buf = BytesIO()
     wb.save(buf)
