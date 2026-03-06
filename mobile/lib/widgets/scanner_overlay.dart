@@ -446,7 +446,7 @@ class ScanResultSheet extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
-                            'Batch $batchCode',
+                            'Voucher $batchCode',
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,

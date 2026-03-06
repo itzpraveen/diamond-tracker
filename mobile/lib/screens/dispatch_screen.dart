@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'package:diamond_tracker_mobile/screens/scan_screen.dart';
 import 'package:diamond_tracker_mobile/state/providers.dart';
@@ -17,8 +18,12 @@ class DispatchScreen extends ConsumerStatefulWidget {
 }
 
 class _DispatchScreenState extends ConsumerState<DispatchScreen> {
+  static const _batchStorageKey = 'dispatch_selected_batch_id';
+  static const _factoryStorageKey = 'dispatch_selected_factory_id';
+
   final _monthController = TextEditingController();
   final _yearController = TextEditingController();
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   List<dynamic> _batches = [];
   String? _selectedBatchId;
   List<dynamic> _factories = [];
@@ -30,13 +35,20 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
   @override
   void initState() {
     super.initState();
-    _loadBatches();
-    _loadFactories();
+    Future.microtask(_initialize);
 
     // Pre-fill with current month/year
     final now = DateTime.now();
     _monthController.text = now.month.toString();
     _yearController.text = now.year.toString();
+  }
+
+  Future<void> _initialize() async {
+    await _restoreSelections();
+    await Future.wait<void>([
+      _loadBatches(),
+      _loadFactories(),
+    ]);
   }
 
   @override
@@ -46,6 +58,42 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
     super.dispose();
   }
 
+  Future<void> _restoreSelections() async {
+    final savedBatchId = await _storage.read(key: _batchStorageKey);
+    final savedFactoryId = await _storage.read(key: _factoryStorageKey);
+    if (!mounted) return;
+    setState(() {
+      _selectedBatchId = savedBatchId;
+      _selectedFactoryId = savedFactoryId;
+    });
+  }
+
+  Future<void> _persistBatchSelection(String? batchId) async {
+    if (batchId == null || batchId.isEmpty) {
+      await _storage.delete(key: _batchStorageKey);
+      return;
+    }
+    await _storage.write(key: _batchStorageKey, value: batchId);
+  }
+
+  Future<void> _persistFactorySelection(String? factoryId) async {
+    if (factoryId == null || factoryId.isEmpty) {
+      await _storage.delete(key: _factoryStorageKey);
+      return;
+    }
+    await _storage.write(key: _factoryStorageKey, value: factoryId);
+  }
+
+  void _onBatchChanged(String? value) {
+    setState(() => _selectedBatchId = value);
+    _persistBatchSelection(value);
+  }
+
+  void _onFactoryChanged(String? value) {
+    setState(() => _selectedFactoryId = value);
+    _persistFactorySelection(value);
+  }
+
   Future<void> _loadBatches() async {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _loading = true);
@@ -53,20 +101,23 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       final api = ref.read(apiClientProvider);
       final batches = await api.listBatches();
       if (!mounted) return;
+      String? nextSelectedBatchId = _selectedBatchId;
       setState(() {
         _batches = batches;
         if (batches.isEmpty) {
-          _selectedBatchId = null;
-        } else if (_selectedBatchId == null ||
-            !_batches.any((batch) => batch['id'] == _selectedBatchId)) {
-          _selectedBatchId = batches.first['id'] as String?;
+          nextSelectedBatchId = null;
+        } else if (nextSelectedBatchId == null ||
+            !_batches.any((batch) => batch['id'] == nextSelectedBatchId)) {
+          nextSelectedBatchId = batches.first['id'] as String?;
         }
+        _selectedBatchId = nextSelectedBatchId;
       });
+      await _persistBatchSelection(nextSelectedBatchId);
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Failed to load batches: $error'),
+          content: Text('Failed to load vouchers: $error'),
           backgroundColor: MajesticColors.danger,
         ),
       );
@@ -84,15 +135,19 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       final api = ref.read(apiClientProvider);
       final factories = await api.listFactories();
       if (!mounted) return;
+      String? nextSelectedFactoryId = _selectedFactoryId;
       setState(() {
         _factories = factories;
         if (factories.isEmpty) {
-          _selectedFactoryId = null;
-        } else if (_selectedFactoryId == null ||
-            !_factories.any((factory) => factory['id'] == _selectedFactoryId)) {
-          _selectedFactoryId = factories.first['id'] as String?;
+          nextSelectedFactoryId = null;
+        } else if (nextSelectedFactoryId == null ||
+            !_factories
+                .any((factory) => factory['id'] == nextSelectedFactoryId)) {
+          nextSelectedFactoryId = factories.first['id'] as String?;
         }
+        _selectedFactoryId = nextSelectedFactoryId;
       });
+      await _persistFactorySelection(nextSelectedFactoryId);
     } catch (error) {
       if (!mounted) return;
       messenger.showSnackBar(
@@ -127,16 +182,29 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       return;
     }
 
+    if (_selectedFactoryId == null || _selectedFactoryId!.isEmpty) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Select a factory before creating a voucher')),
+      );
+      return;
+    }
+
     setState(() => _creating = true);
     try {
       final api = ref.read(apiClientProvider);
-      final batch = await api.createBatch(year: year, month: month);
+      final batch = await api.createBatch(
+        year: year,
+        month: month,
+        factoryId: _selectedFactoryId,
+      );
       if (!mounted) return;
       await _loadBatches();
-      setState(() => _selectedBatchId = batch['id'] as String?);
+      final createdBatchId = batch['id'] as String?;
+      setState(() => _selectedBatchId = createdBatchId);
+      await _persistBatchSelection(createdBatchId);
       messenger.showSnackBar(
         const SnackBar(
-          content: Text('Batch created successfully'),
+          content: Text('Voucher created successfully'),
           backgroundColor: MajesticColors.success,
         ),
       );
@@ -144,7 +212,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Failed to create batch: $error'),
+          content: Text('Failed to create voucher: $error'),
           backgroundColor: MajesticColors.danger,
         ),
       );
@@ -229,7 +297,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Manage batches and dispatch items to factory',
+                        'Manage vouchers and dispatch items to factory',
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
@@ -240,8 +308,8 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Batch selection
-          const SectionHeader(title: 'Active Batch'),
+          // Voucher selection
+          const SectionHeader(title: 'Active Voucher'),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -258,22 +326,23 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                   else if (_batches.isEmpty)
                     EmptyState(
                       icon: Icons.inventory_2_outlined,
-                      title: 'No batches',
-                      subtitle: 'Create a new batch to start dispatching',
+                      title: 'No vouchers',
+                      subtitle: 'Create a new voucher to start dispatching',
                     )
                   else ...[
                     MajesticDropdown<String>(
-                      label: 'Select Batch',
+                      label: 'Select Voucher',
                       value: _selectedBatchId,
                       items: _batches
                           .map(
                             (batch) => DropdownMenuItem(
                               value: batch['id'] as String,
-                              child: Text('${batch['batch_code']} (${batch['status']})'),
+                              child: Text(
+                                  '${batch['batch_code']} (${batch['status']})'),
                             ),
                           )
                           .toList(),
-                      onChanged: (value) => setState(() => _selectedBatchId = value),
+                      onChanged: _onBatchChanged,
                     ),
                     const SizedBox(height: 12),
                     if (_loadingFactories)
@@ -301,7 +370,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                               ),
                             )
                             .toList(),
-                        onChanged: (value) => setState(() => _selectedFactoryId = value),
+                        onChanged: _onFactoryChanged,
                       ),
                     const SizedBox(height: 12),
                     SizedBox(
@@ -322,8 +391,8 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Create batch
-          const SectionHeader(title: 'Create Batch'),
+          // Create voucher
+          const SectionHeader(title: 'Create Voucher'),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(20),
@@ -355,7 +424,7 @@ class _DispatchScreenState extends ConsumerState<DispatchScreen> {
                   const SizedBox(height: 16),
                   LoadingButton(
                     onPressed: _createBatch,
-                    label: 'Create Batch',
+                    label: 'Create Voucher',
                     icon: Icons.add,
                     isLoading: _creating,
                     variant: LoadingButtonVariant.secondary,
@@ -436,9 +505,12 @@ class _SelectedBatchCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: isDark ? MajesticColors.gold.withValues(alpha: 0.2) : MajesticColors.gold.withValues(alpha: 0.15),
+                  color: isDark
+                      ? MajesticColors.gold.withValues(alpha: 0.2)
+                      : MajesticColors.gold.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -451,7 +523,8 @@ class _SelectedBatchCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: isDark ? MajesticColors.darkSurface : Colors.white,
                   borderRadius: BorderRadius.circular(6),
@@ -467,7 +540,7 @@ class _SelectedBatchCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'Scan items to add to this batch and dispatch to factory',
+            'Scan items to add to this voucher and dispatch to factory',
             style: theme.textTheme.bodyMedium,
           ),
           if (factoryName != null) ...[
@@ -475,7 +548,9 @@ class _SelectedBatchCard extends StatelessWidget {
             Text(
               'Factory: $factoryName',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: isDark ? MajesticColors.darkTextSecondary : MajesticColors.ink.withValues(alpha: 0.6),
+                color: isDark
+                    ? MajesticColors.darkTextSecondary
+                    : MajesticColors.ink.withValues(alpha: 0.6),
               ),
             ),
           ],

@@ -211,7 +211,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       case Role.dispatch:
         return RoleActionButton(
           title: 'Dispatch Center',
-          subtitle: 'Manage batches and dispatch',
+          subtitle: 'Manage vouchers and dispatch',
           icon: Icons.local_shipping_outlined,
           onTap: () => _navigateTo(context, const DispatchScreen()),
         );

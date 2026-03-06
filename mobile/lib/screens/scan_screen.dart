@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import 'package:diamond_tracker_mobile/models/enums.dart';
+import 'package:diamond_tracker_mobile/screens/dispatch_screen.dart';
 import 'package:diamond_tracker_mobile/screens/incident_screen.dart';
+import 'package:diamond_tracker_mobile/screens/scan_logic.dart';
 import 'package:diamond_tracker_mobile/state/auth_controller.dart';
 import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
@@ -79,7 +84,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final roles = ref.watch(authControllerProvider).roles;
     final currentStatus = _job?['current_status']?.toString();
     final manualOptions = _manualOptions(roles, currentStatus);
-    final nextStatus = widget.targetStatus ?? _manualTargetStatus ?? _nextStatus(roles, currentStatus);
+    final nextStatus = widget.targetStatus ??
+        _manualTargetStatus ??
+        _nextStatus(roles, currentStatus);
+    final blockingReason =
+        scanBlockingReason(nextStatus: nextStatus, batchId: widget.batchId);
     final needsManual = widget.targetStatus == null && manualOptions.length > 1;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -92,7 +101,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: _flashOn ? MajesticColors.gold : Colors.black.withValues(alpha: 0.4),
+              color: _flashOn
+                  ? MajesticColors.gold
+                  : Colors.black.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
@@ -127,7 +138,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
               position: _sheetAnimation,
               child: Align(
                 alignment: Alignment.bottomCenter,
-                child: _ResultSheet(
+                child: ScanResultSheet(
                   scannedCode: _scannedCode!,
                   job: _job,
                   error: _errorMessage,
@@ -139,15 +150,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
                   needsManual: needsManual,
                   manualOptions: manualOptions,
                   manualTargetStatus: _manualTargetStatus,
-                  onManualStatusChanged: (v) => setState(() => _manualTargetStatus = v),
+                  onManualStatusChanged: (v) =>
+                      setState(() => _manualTargetStatus = v),
                   onConfirm: () => _confirmScan(context, roles),
                   onRescan: _resetScan,
+                  onOpenDispatchCenter: () => _openDispatchCenter(context),
                   onReportIncident: () => Navigator.push(
                     context,
-                    MajesticPageRoute(page: IncidentScreen(jobId: _scannedCode)),
+                    MajesticPageRoute(
+                        page: IncidentScreen(jobId: _scannedCode)),
                   ),
                   isSubmitting: _isSubmitting,
                   isDark: isDark,
+                  blockingReason: blockingReason,
                 ),
               ),
             ),
@@ -168,6 +183,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _job = null;
       _manualTargetStatus = null;
     });
+    _playScanDetectedFeedback();
 
     // Show sheet
     _sheetAnimController.forward();
@@ -180,7 +196,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         final localJob = await repo.getLocalJob(code);
         final currentStatus = localJob?['current_status'] as String?;
         final manualOptions = _manualOptions(roles, currentStatus);
-        final needsManual = widget.targetStatus == null && manualOptions.length > 1;
+        final needsManual =
+            widget.targetStatus == null && manualOptions.length > 1;
         final fallback = _nextStatus(roles, currentStatus);
         setState(() {
           _job = localJob;
@@ -188,7 +205,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             _manualTargetStatus = fallback;
           }
           if (localJob == null) {
-            _errorMessage = 'Job not cached locally. Enable online mode or select a status manually.';
+            _errorMessage =
+                'Job not cached locally. Enable online mode or select a status manually.';
           }
         });
         return;
@@ -198,7 +216,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       final job = await api.getJob(code);
       final currentStatus = job['current_status'] as String?;
       final manualOptions = _manualOptions(roles, currentStatus);
-      final needsManual = widget.targetStatus == null && manualOptions.length > 1;
+      final needsManual =
+          widget.targetStatus == null && manualOptions.length > 1;
       final fallback = _nextStatus(roles, currentStatus);
       setState(() {
         _job = job;
@@ -207,8 +226,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         }
       });
     } catch (error) {
+      _playErrorFeedback();
       setState(() {
-        _errorMessage = 'Failed to load job: $error';
+        _errorMessage = 'Failed to load job: ${readableApiError(error)}';
       });
     }
   }
@@ -223,6 +243,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         _nextStatus(roles, _job?['current_status'] as String?);
 
     if (nextStatus == null) {
+      _playErrorFeedback();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No valid status transition')),
       );
@@ -230,12 +251,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     }
 
     final currentStatus = _job?['current_status']?.toString();
-    if (currentStatus != null && !_isAllowedTransition(currentStatus, nextStatus)) {
+    if (currentStatus != null &&
+        !_isAllowedTransition(currentStatus, nextStatus)) {
+      _playErrorFeedback();
       messenger.showSnackBar(
         SnackBar(
           content: Text(
             'Invalid transition: ${statusLabel(currentStatus)} → ${statusLabel(nextStatus)}',
           ),
+          backgroundColor: MajesticColors.danger,
+        ),
+      );
+      return;
+    }
+
+    final blockingReason = scanBlockingReason(
+      nextStatus: nextStatus,
+      batchId: widget.batchId,
+    );
+    if (blockingReason != null) {
+      _playErrorFeedback();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(blockingReason),
           backgroundColor: MajesticColors.danger,
         ),
       );
@@ -264,6 +302,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         offline: _offline,
       );
       if (!context.mounted) return;
+      _playSuccessFeedback();
       messenger.showSnackBar(
         SnackBar(
           content: Text(_offline ? 'Scan queued for sync' : 'Scan confirmed'),
@@ -273,9 +312,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       navigator.pop();
     } catch (error) {
       if (!context.mounted) return;
+      final readableError = readableApiError(error);
+      _playErrorFeedback();
+      if (mounted) {
+        setState(() => _errorMessage = readableError);
+      }
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Scan failed: $error'),
+          content: Text('Scan failed: $readableError'),
           backgroundColor: MajesticColors.danger,
         ),
       );
@@ -286,8 +330,31 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     }
   }
 
+  void _openDispatchCenter(BuildContext context) {
+    _resetScan();
+    Navigator.of(context).pushReplacement(
+      MajesticPageRoute(page: const DispatchScreen()),
+    );
+  }
+
+  void _playScanDetectedFeedback() {
+    unawaited(HapticFeedback.selectionClick());
+    unawaited(SystemSound.play(SystemSoundType.click));
+  }
+
+  void _playSuccessFeedback() {
+    unawaited(HapticFeedback.mediumImpact());
+    unawaited(SystemSound.play(SystemSoundType.click));
+  }
+
+  void _playErrorFeedback() {
+    unawaited(HapticFeedback.heavyImpact());
+    unawaited(SystemSound.play(SystemSoundType.alert));
+  }
+
   void _resetScan() {
     _sheetAnimController.reverse().then((_) {
+      if (!mounted) return;
       setState(() {
         _processing = false;
         _scannedCode = null;
@@ -324,12 +391,20 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       case Role.dispatch:
         return ['DISPATCHED_TO_FACTORY'];
       case Role.factory:
-        if (currentStatus == 'DISPATCHED_TO_FACTORY') return ['RECEIVED_AT_FACTORY'];
-        if (currentStatus == 'RECEIVED_AT_FACTORY') return ['RETURNED_FROM_FACTORY'];
+        if (currentStatus == 'DISPATCHED_TO_FACTORY') {
+          return ['RECEIVED_AT_FACTORY'];
+        }
+        if (currentStatus == 'RECEIVED_AT_FACTORY') {
+          return ['RETURNED_FROM_FACTORY'];
+        }
         return ['RECEIVED_AT_FACTORY', 'RETURNED_FROM_FACTORY'];
       case Role.qcStock:
-        if (currentStatus == 'RETURNED_FROM_FACTORY') return ['RECEIVED_AT_SHOP'];
-        if (currentStatus == 'RECEIVED_AT_SHOP') return ['ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'];
+        if (currentStatus == 'RETURNED_FROM_FACTORY') {
+          return ['RECEIVED_AT_SHOP'];
+        }
+        if (currentStatus == 'RECEIVED_AT_SHOP') {
+          return ['ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'];
+        }
         return ['RECEIVED_AT_SHOP', 'ADDED_TO_STOCK', 'HANDED_TO_DELIVERY'];
       case Role.delivery:
         return ['DELIVERED_TO_CUSTOMER'];
@@ -355,8 +430,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   }
 }
 
-class _ResultSheet extends StatelessWidget {
-  const _ResultSheet({
+class ScanResultSheet extends StatelessWidget {
+  const ScanResultSheet({
+    super.key,
     required this.scannedCode,
     required this.job,
     required this.error,
@@ -371,9 +447,11 @@ class _ResultSheet extends StatelessWidget {
     required this.onManualStatusChanged,
     required this.onConfirm,
     required this.onRescan,
+    required this.onOpenDispatchCenter,
     required this.onReportIncident,
     required this.isSubmitting,
     required this.isDark,
+    required this.blockingReason,
   });
 
   final String scannedCode;
@@ -390,15 +468,24 @@ class _ResultSheet extends StatelessWidget {
   final ValueChanged<String?> onManualStatusChanged;
   final VoidCallback onConfirm;
   final VoidCallback onRescan;
+  final VoidCallback onOpenDispatchCenter;
   final VoidCallback onReportIncident;
   final bool isSubmitting;
   final bool isDark;
+  final String? blockingReason;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasError = error != null;
-    final canConfirm = !hasError || offline;
+    final canConfirm = (!hasError || offline) && blockingReason == null;
+    final showDispatchShortcut = shouldSuggestDispatchCenter(
+      nextStatus: nextStatus,
+      blockingReason: blockingReason,
+      errorMessage: error,
+    );
+    final showBatchRequiredBadge =
+        nextStatus == 'DISPATCHED_TO_FACTORY' && blockingReason != null;
 
     return Container(
       margin: const EdgeInsets.all(16),
@@ -437,17 +524,41 @@ class _ResultSheet extends StatelessWidget {
                         if (batchCode != null)
                           Container(
                             margin: const EdgeInsets.only(top: 6),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: MajesticColors.gold.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              'Batch $batchCode',
+                              'Voucher $batchCode',
                               style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: MajesticColors.gold,
+                              ),
+                            ),
+                          ),
+                        if (showBatchRequiredBadge)
+                          Container(
+                            margin: const EdgeInsets.only(top: 6),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color:
+                                  MajesticColors.danger.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: MajesticColors.danger
+                                    .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: const Text(
+                              batchRequiredBadgeLabel,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: MajesticColors.danger,
                               ),
                             ),
                           ),
@@ -476,13 +587,16 @@ class _ResultSheet extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: MajesticColors.danger.withValues(alpha: isDark ? 0.2 : 0.08),
+                    color: MajesticColors.danger
+                        .withValues(alpha: isDark ? 0.2 : 0.08),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: MajesticColors.danger.withValues(alpha: 0.3)),
+                    border: Border.all(
+                        color: MajesticColors.danger.withValues(alpha: 0.3)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.warning_amber, color: MajesticColors.danger, size: 20),
+                      const Icon(Icons.warning_amber,
+                          color: MajesticColors.danger, size: 20),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
@@ -538,7 +652,9 @@ class _ResultSheet extends StatelessWidget {
               // Offline toggle
               MajesticSwitch(
                 title: 'Offline Mode',
-                subtitle: offline ? 'Will queue for later sync' : 'Connected to server',
+                subtitle: offline
+                    ? 'Will queue for later sync'
+                    : 'Connected to server',
                 icon: offline ? Icons.cloud_off : Icons.cloud_done,
                 value: offline,
                 onChanged: onOfflineChanged,
@@ -560,26 +676,78 @@ class _ResultSheet extends StatelessWidget {
                 ),
               ],
 
+              if (blockingReason != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: MajesticColors.danger
+                        .withValues(alpha: isDark ? 0.2 : 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: MajesticColors.danger.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: MajesticColors.danger,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          blockingReason!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: MajesticColors.danger,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 20),
 
               // Actions
-              Row(
-                children: [
-                  Expanded(
-                    child: LoadingButton(
-                      onPressed: canConfirm ? onConfirm : null,
-                      label: 'Confirm',
-                      icon: Icons.check,
-                      isLoading: isSubmitting,
+              if (showDispatchShortcut)
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: onOpenDispatchCenter,
+                        icon:
+                            const Icon(Icons.local_shipping_outlined, size: 18),
+                        label: const Text('Open Dispatch Center'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  OutlinedButton(
-                    onPressed: onRescan,
-                    child: const Text('Rescan'),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 12),
+                    OutlinedButton(
+                      onPressed: onRescan,
+                      child: const Text('Rescan'),
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  children: [
+                    Expanded(
+                      child: LoadingButton(
+                        onPressed: canConfirm ? onConfirm : null,
+                        label: 'Confirm',
+                        icon: Icons.check,
+                        isLoading: isSubmitting,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    OutlinedButton(
+                      onPressed: onRescan,
+                      child: const Text('Rescan'),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,

@@ -189,10 +189,15 @@ class ApiClient {
     return response.data as List<dynamic>;
   }
 
-  Future<Map<String, dynamic>> createBatch({int? year, int? month}) async {
+  Future<Map<String, dynamic>> createBatch({
+    int? year,
+    int? month,
+    String? factoryId,
+  }) async {
     final response = await _dio.post('/batches', data: {
       if (year != null) 'year': year,
       if (month != null) 'month': month,
+      if (factoryId != null && factoryId.isNotEmpty) 'factory_id': factoryId,
     });
     return response.data as Map<String, dynamic>;
   }
