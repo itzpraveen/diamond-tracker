@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, ItemJob, Role, Status, StatusEvent
+from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, Incident, ItemJob, Role, Status, StatusEvent
 from app.schemas import BatchAddItem, BatchCreate, BatchDetail, BatchDispatchRequest, BatchOut, JobOut
 from app.utils.pdf import generate_manifest_pdf
 from app.utils.roles import select_role_for_action
@@ -233,6 +233,52 @@ def _build_manifest_workbook(batch: Batch):
     return wb
 
 
+def _serialize_batch_cleanup_entry(batch: Batch, *, incident_refs: int) -> dict:
+    return {
+        "id": str(batch.id),
+        "batch_code": batch.batch_code,
+        "status": batch.status.value if batch.status else None,
+        "item_count": int(batch.item_count or 0),
+        "factory": batch.factory_name,
+        "created_at": batch.created_at.isoformat() if batch.created_at else None,
+        "incident_refs": int(incident_refs),
+    }
+
+
+def _get_empty_batch_cleanup_candidates(db: Session) -> tuple[list[tuple[Batch, int]], list[dict]]:
+    empty_batches = (
+        db.query(Batch)
+        .options(selectinload(Batch.factory))
+        .filter(~Batch.items.any())
+        .order_by(Batch.created_at.desc())
+        .all()
+    )
+    if not empty_batches:
+        return [], []
+
+    incident_counts = {
+        batch_id: int(count or 0)
+        for batch_id, count in (
+            db.query(Incident.batch_id, func.count(Incident.id))
+            .filter(Incident.batch_id.in_([batch.id for batch in empty_batches]))
+            .group_by(Incident.batch_id)
+            .all()
+        )
+        if batch_id is not None
+    }
+
+    deletable: list[tuple[Batch, int]] = []
+    skipped: list[dict] = []
+    for batch in empty_batches:
+        incident_refs = incident_counts.get(batch.id, 0)
+        if incident_refs > 0:
+            skipped.append(_serialize_batch_cleanup_entry(batch, incident_refs=incident_refs))
+            continue
+        deletable.append((batch, incident_refs))
+
+    return deletable, skipped
+
+
 @router.post("", response_model=BatchOut)
 def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
     now = datetime.now(timezone.utc)
@@ -284,6 +330,35 @@ def list_batches(db: Session = Depends(get_db), user=Depends(require_roles(Role.
         .limit(200)
         .all()
     )
+
+
+@router.delete("/empty")
+def delete_empty_batches(
+    dry_run: bool = True,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN)),
+):
+    deletable, skipped = _get_empty_batch_cleanup_candidates(db)
+    deletable_entries = [
+        _serialize_batch_cleanup_entry(batch, incident_refs=incident_refs)
+        for batch, incident_refs in deletable
+    ]
+
+    if not dry_run:
+        for batch, _incident_refs in deletable:
+            db.delete(batch)
+        db.commit()
+
+    return {
+        "dry_run": dry_run,
+        "matching_empty_count": len(deletable_entries) + len(skipped),
+        "deleted_count": 0 if dry_run else len(deletable_entries),
+        "deletable_count": len(deletable_entries),
+        "skipped_with_incidents_count": len(skipped),
+        "deleted_batch_codes": [] if dry_run else [entry["batch_code"] for entry in deletable_entries],
+        "deletable": deletable_entries,
+        "skipped_with_incidents": skipped,
+    }
 
 
 @router.post("/{batch_id}/items", response_model=BatchOut)
