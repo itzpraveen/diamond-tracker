@@ -117,7 +117,7 @@ export default function Dashboard() {
               <Button size="lg">Review Items</Button>
             </Link>
             <Link href="/batches">
-              <Button variant="outline" size="lg">Manage Batches</Button>
+              <Button variant="outline" size="lg">Manage Vouchers</Button>
             </Link>
           </div>
         </div>

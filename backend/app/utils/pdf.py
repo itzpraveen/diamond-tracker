@@ -402,7 +402,7 @@ def generate_manifest_pdf(batch: Batch, jobs: Iterable[ItemJob]) -> bytes:
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(20 * mm, 280 * mm, f"Batch Manifest: {batch.batch_code}")
+    c.drawString(20 * mm, 280 * mm, f"Voucher Manifest: {batch.batch_code}")
 
     c.setFont("Helvetica", 10)
     c.drawString(20 * mm, 272 * mm, f"Status: {batch.status}")

@@ -134,9 +134,9 @@ def _get_previous_status_before_hold(db: Session, job: ItemJob) -> Optional[Stat
 def _get_batch_by_uuid(db: Session, batch_id: uuid.UUID) -> Batch:
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
+        raise HTTPException(status_code=404, detail="Voucher not found")
     if batch.status == BatchStatus.CLOSED:
-        raise HTTPException(status_code=400, detail="Batch is closed")
+        raise HTTPException(status_code=400, detail="Voucher is closed")
     return batch
 
 
@@ -249,7 +249,7 @@ def list_jobs(
         try:
             batch_uuid = uuid.UUID(batch_id)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid batch id") from exc
+            raise HTTPException(status_code=400, detail="Invalid voucher id") from exc
         query = query.join(BatchItem).filter(BatchItem.batch_id == batch_uuid)
 
     sort_map = {
@@ -421,12 +421,12 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
 
     if target_status == Status.DISPATCHED_TO_FACTORY and not override_needed:
         if not payload.batch_id:
-            raise HTTPException(status_code=400, detail="Batch id required for dispatch")
+            raise HTTPException(status_code=400, detail="Voucher id required for dispatch")
         batch = _get_batch_by_uuid(db, payload.batch_id)
         if payload.factory_id:
             factory = _get_factory_by_uuid(db, payload.factory_id)
             if batch.factory_id and batch.factory_id != factory.id:
-                raise HTTPException(status_code=400, detail="Batch factory does not match")
+                raise HTTPException(status_code=400, detail="Voucher factory does not match")
             batch.factory_id = factory.id
         elif not batch.factory_id:
             raise HTTPException(status_code=400, detail="Factory id required for dispatch")
@@ -436,7 +436,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
             .first()
         )
         if existing_item:
-            raise HTTPException(status_code=400, detail="Item already in batch")
+            raise HTTPException(status_code=400, detail="Item already in voucher")
         db.add(BatchItem(batch_id=batch.id, job_id=job.id))
         batch.item_count += 1
         job.factory_id = batch.factory_id
@@ -445,7 +445,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         if payload.factory_id:
             factory = _get_factory_by_uuid(db, payload.factory_id)
             if batch.factory_id and batch.factory_id != factory.id:
-                raise HTTPException(status_code=400, detail="Batch factory does not match")
+                raise HTTPException(status_code=400, detail="Voucher factory does not match")
             batch.factory_id = factory.id
         existing_item = (
             db.query(BatchItem)
@@ -464,7 +464,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
     job.last_scan_at = datetime.now(timezone.utc)
     remarks = payload.remarks
     if target_status == Status.DISPATCHED_TO_FACTORY and batch:
-        remarks = remarks or f"Batch dispatch {batch.batch_code}"
+        remarks = remarks or f"Voucher dispatch {batch.batch_code}"
 
     event = StatusEvent(
         job_id=job.id,

@@ -330,9 +330,11 @@ def factory_summary(
 
 @router.get("/export.csv")
 def export_csv(type: str = Query(...), db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN))):
-    headers = {"Content-Disposition": f'attachment; filename="{type}.csv"'}
+    export_type = type.lower()
+    filename = "vouchers.csv" if export_type == "vouchers" else f"{export_type}.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
 
-    if type == "jobs":
+    if export_type == "jobs":
         rows = db.query(ItemJob).execution_options(stream_results=True).yield_per(1000)
         generator = _stream_csv_rows(
             [
@@ -361,14 +363,14 @@ def export_csv(type: str = Query(...), db: Session = Depends(get_db), user=Depen
                 job.item_source,
             ],
         )
-    elif type == "incidents":
+    elif export_type == "incidents":
         rows = db.query(Incident).execution_options(stream_results=True).yield_per(1000)
         generator = _stream_csv_rows(
             ["id", "type", "status", "created_at", "description"],
             rows,
             lambda inc: [inc.id, inc.type, inc.status, inc.created_at, inc.description],
         )
-    elif type == "batches":
+    elif export_type in {"batches", "vouchers"}:
         rows = db.query(Batch).execution_options(stream_results=True).yield_per(1000)
         generator = _stream_csv_rows(
             ["batch_code", "status", "dispatch_date", "expected_return_date", "item_count"],

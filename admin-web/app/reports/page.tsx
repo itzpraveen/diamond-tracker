@@ -16,7 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 export default function ReportsPage() {
   const { request, requestBlob } = useApi();
   const [windowDays, setWindowDays] = useState("3");
-  const [showAllBatches, setShowAllBatches] = useState(false);
+  const [showAllVouchers, setShowAllVouchers] = useState(false);
   const delaysQuery = useQuery({
     queryKey: ["reports", "batch-delays"],
     queryFn: () => request<any[]>("/reports/batch-delays")
@@ -91,20 +91,20 @@ export default function ReportsPage() {
   };
 
   const delays = delaysQuery.data || [];
-  const delayedBatches = delays.filter((batch) => (batch.delay_days ?? 0) > 0);
-  const visibleBatches = showAllBatches ? delays : delayedBatches;
-  const totalDelayDays = delayedBatches.reduce(
-    (sum, batch) => sum + (Number(batch.delay_days) || 0),
+  const delayedVouchers = delays.filter((voucher) => (voucher.delay_days ?? 0) > 0);
+  const visibleVouchers = showAllVouchers ? delays : delayedVouchers;
+  const totalDelayDays = delayedVouchers.reduce(
+    (sum, voucher) => sum + (Number(voucher.delay_days) || 0),
     0
   );
   const avgDelay =
-    delayedBatches.length > 0 ? (totalDelayDays / delayedBatches.length).toFixed(1) : "0";
+    delayedVouchers.length > 0 ? (totalDelayDays / delayedVouchers.length).toFixed(1) : "0";
 
   const lastUpdatedAt = Math.max(delaysQuery.dataUpdatedAt || 0, repairTargetsQuery.dataUpdatedAt || 0);
   const lastUpdatedLabel = lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleString() : "—";
   const hasError = delaysQuery.isError || repairTargetsQuery.isError;
   const delaysError =
-    delaysQuery.error instanceof Error ? delaysQuery.error.message : "Failed to load batch delays.";
+    delaysQuery.error instanceof Error ? delaysQuery.error.message : "Failed to load voucher delays.";
   const repairError =
     repairTargetsQuery.error instanceof Error ? repairTargetsQuery.error.message : "Failed to load repair targets.";
 
@@ -123,13 +123,13 @@ export default function ReportsPage() {
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-slate">Reports</p>
             <h1 className="text-2xl font-semibold font-display">Exports & Delays</h1>
-            <p className="mt-2 text-sm text-slate">Generate CSV exports or review delayed batches.</p>
+            <p className="mt-2 text-sm text-slate">Generate CSV exports or review delayed vouchers.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-white/70 p-2">
             <Badge variant="info" size="sm">Live</Badge>
             <span className="text-xs text-slate-600">Last updated {lastUpdatedLabel}</span>
             <Button variant="outline" onClick={() => exportCsv("jobs")}>Export Jobs</Button>
-            <Button variant="outline" onClick={() => exportCsv("batches")}>Export Batches</Button>
+            <Button variant="outline" onClick={() => exportCsv("vouchers")}>Export Vouchers</Button>
             <Button variant="outline" onClick={() => exportCsv("incidents")}>Export Incidents</Button>
             <Button variant="ghost" onClick={refreshAll} disabled={delaysQuery.isFetching || repairTargetsQuery.isFetching}>
               {delaysQuery.isFetching || repairTargetsQuery.isFetching ? "Refreshing..." : "Refresh"}
@@ -146,38 +146,38 @@ export default function ReportsPage() {
 
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-2xl border border-ink/10 bg-white/70 p-4">
-            <p className="text-xs uppercase tracking-[0.3em] text-slate">Batches</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate">Vouchers</p>
             <p className="mt-2 text-2xl font-semibold">{delays.length}</p>
-            <p className="text-sm text-slate">Total batches tracked</p>
+            <p className="text-sm text-slate">Total vouchers tracked</p>
           </div>
           <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
             <p className="text-xs uppercase tracking-[0.3em] text-amber-600">Delayed</p>
-            <p className="mt-2 text-2xl font-semibold">{delayedBatches.length}</p>
-            <p className="text-sm text-amber-700">Batches past expected return</p>
+            <p className="mt-2 text-2xl font-semibold">{delayedVouchers.length}</p>
+            <p className="text-sm text-amber-700">Vouchers past expected return</p>
           </div>
           <div className="rounded-2xl border border-sky-200 bg-sky-50/70 p-4">
             <p className="text-xs uppercase tracking-[0.3em] text-sky-600">Avg Delay</p>
             <p className="mt-2 text-2xl font-semibold">{avgDelay} days</p>
-            <p className="text-sm text-sky-700">Average delay for delayed batches</p>
+            <p className="text-sm text-sky-700">Average delay for delayed vouchers</p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate">
-            Showing {showAllBatches ? "all batches" : "delayed batches only"}.
+            Showing {showAllVouchers ? "all vouchers" : "delayed vouchers only"}.
           </div>
           <Button
             variant="ghost"
-            onClick={() => setShowAllBatches((prev) => !prev)}
+            onClick={() => setShowAllVouchers((prev) => !prev)}
           >
-            {showAllBatches ? "Show Delayed Only" : "Show All Batches"}
+            {showAllVouchers ? "Show Delayed Only" : "Show All Vouchers"}
           </Button>
         </div>
 
         <Table>
           <THead>
             <TR>
-              <TH>Batch</TH>
+              <TH>Voucher</TH>
               <TH>Expected Return</TH>
               <TH>Dispatch</TH>
               <TH>Delay (days)</TH>
@@ -190,15 +190,15 @@ export default function ReportsPage() {
                   <div className="h-10 animate-pulse rounded-xl bg-sand/70" />
                 </TD>
               </TR>
-            ) : visibleBatches.length ? (
-              visibleBatches.map((batch) => (
-                <TR key={batch.batch_code}>
-                  <TD>{batch.batch_code}</TD>
-                  <TD>{formatDate(batch.expected_return_date)}</TD>
-                  <TD>{formatDate(batch.dispatch_date)}</TD>
+            ) : visibleVouchers.length ? (
+              visibleVouchers.map((voucher) => (
+                <TR key={voucher.batch_code}>
+                  <TD>{voucher.batch_code}</TD>
+                  <TD>{formatDate(voucher.expected_return_date)}</TD>
+                  <TD>{formatDate(voucher.dispatch_date)}</TD>
                   <TD>
-                    <Badge variant={batch.delay_days > 0 ? "danger" : "default"} size="sm">
-                      {batch.delay_days ?? 0}
+                    <Badge variant={voucher.delay_days > 0 ? "danger" : "default"} size="sm">
+                      {voucher.delay_days ?? 0}
                     </Badge>
                   </TD>
                 </TR>
@@ -207,7 +207,7 @@ export default function ReportsPage() {
               <TR>
                 <TD colSpan={4}>
                   <p className="text-sm text-slate">
-                    No batches match this view. Try “Show All Batches” or adjust expected return dates.
+                    No vouchers match this view. Try “Show All Vouchers” or adjust expected return dates.
                   </p>
                 </TD>
               </TR>

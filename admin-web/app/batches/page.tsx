@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -9,11 +9,21 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
-import { Table, TBody, TD, TH, THead, TR, MobileTableCard, MobileTableRow } from "@/components/ui/table";
-import { getApiBaseUrl } from "@/lib/apiBase";
+import { MobileTableCard, MobileTableRow, Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate } from "@/lib/auth";
 import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
 
 function BatchDetailModal({
   batchId,
@@ -22,12 +32,14 @@ function BatchDetailModal({
   batchId: string;
   onClose: () => void;
 }) {
-  const { request } = useApi();
+  const { request, requestBlob } = useApi();
   const [jobIdToAdd, setJobIdToAdd] = useState("");
   const [addError, setAddError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [dispatchDate, setDispatchDate] = useState("");
   const [expectedReturn, setExpectedReturn] = useState("");
   const [selectedFactoryId, setSelectedFactoryId] = useState("");
+  const [isDownloadingManifest, setIsDownloadingManifest] = useState(false);
 
   const batchQuery = useQuery({
     queryKey: ["batch", batchId],
@@ -53,10 +65,39 @@ function BatchDetailModal({
     onSuccess: () => {
       setJobIdToAdd("");
       setAddError("");
+      setActionError("");
       batchQuery.refetch();
     },
     onError: (err: any) => {
       setAddError(err?.message || "Failed to add item");
+    }
+  });
+
+  const removeItemMutation = useMutation({
+    mutationFn: (jobId: string) =>
+      request(`/batches/${batchId}/items/${encodeURIComponent(jobId)}`, {
+        method: "DELETE"
+      }),
+    onSuccess: () => {
+      setActionError("");
+      batchQuery.refetch();
+    },
+    onError: (err: any) => {
+      setActionError(err?.message || "Failed to remove item");
+    }
+  });
+
+  const clearBatchMutation = useMutation({
+    mutationFn: () =>
+      request(`/batches/${batchId}/items`, {
+        method: "DELETE"
+      }),
+    onSuccess: () => {
+      setActionError("");
+      batchQuery.refetch();
+    },
+    onError: (err: any) => {
+      setActionError(err?.message || "Failed to clear voucher");
     }
   });
 
@@ -78,7 +119,13 @@ function BatchDetailModal({
           factory_id: selectedFactoryId || undefined
         })
       }),
-    onSuccess: () => batchQuery.refetch()
+    onSuccess: () => {
+      setActionError("");
+      batchQuery.refetch();
+    },
+    onError: (err: any) => {
+      setActionError(err?.message || "Failed to dispatch voucher");
+    }
   });
 
   const closeMutation = useMutation({
@@ -86,33 +133,67 @@ function BatchDetailModal({
       request(`/batches/${batchId}/close`, {
         method: "POST"
       }),
-    onSuccess: () => batchQuery.refetch()
+    onSuccess: () => {
+      setActionError("");
+      batchQuery.refetch();
+    },
+    onError: (err: any) => {
+      setActionError(err?.message || "Failed to close voucher");
+    }
   });
 
   const batch = batchQuery.data;
   const factories = factoriesQuery.data || [];
+  const readyLabel = statusLabel("PACKED_READY");
 
   useEffect(() => {
     setSelectedFactoryId(batch?.factory_id || "");
   }, [batch?.factory_id]);
 
-  const manifestUrl = useMemo(() => {
-    const base = getApiBaseUrl();
-    return `${base}/batches/${batchId}/manifest.pdf`;
-  }, [batchId]);
-
   const canAddItems = batch?.status === "CREATED";
   const canDispatch = batch?.status === "CREATED" && batch?.item_count > 0;
   const canClose = batch?.status === "DISPATCHED";
+  const canEditItems = Boolean(batch) && batch.status !== "CLOSED";
+  const canClearBatch =
+    canEditItems &&
+    Boolean(batch?.items?.length) &&
+    batch.items.every((item: any) => item.current_status === "DISPATCHED_TO_FACTORY");
+
+  const handleDownloadManifest = async () => {
+    setActionError("");
+    setIsDownloadingManifest(true);
+    try {
+      const blob = await requestBlob(`/batches/${batchId}/manifest.xlsx`);
+      const filename = `${(batch?.batch_code || "voucher").toLowerCase().replace(/\s+/g, "-")}-manifest.xlsx`;
+      downloadBlob(blob, filename);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to download Excel");
+    } finally {
+      setIsDownloadingManifest(false);
+    }
+  };
+
+  const handleClearBatch = () => {
+    if (!batch?.items?.length) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Remove all ${batch.items.length} items from ${batch.batch_code}? Their status will revert to ${readyLabel}.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setActionError("");
+    clearBatchMutation.mutate();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-[var(--shadow-lg)] sm:max-w-3xl sm:rounded-2xl sm:p-6">
-        {/* Header */}
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <CardLabel>Batch</CardLabel>
+            <CardLabel>Issue Voucher</CardLabel>
             <CardTitle className="mt-1">{batch?.batch_code || "Loading..."}</CardTitle>
             {batch?.status && <StatusBadge status={batch.status} className="mt-2" />}
           </div>
@@ -121,7 +202,6 @@ function BatchDetailModal({
           </Button>
         </div>
 
-        {/* Batch Info */}
         <div className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:grid-cols-4">
           <div>
             <p className="text-xs text-slate">Items</p>
@@ -145,12 +225,11 @@ function BatchDetailModal({
           </div>
         </div>
 
-        {/* Add Item Section */}
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canAddItems && (
             <div className="mb-5 rounded-xl border border-ink/8 bg-white/80 p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate">Add Item</p>
-              <p className="mt-1 text-sm font-medium">Scan & Dispatch Item</p>
+              <p className="mt-1 text-sm font-medium">Scan items into this voucher</p>
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
@@ -160,7 +239,7 @@ function BatchDetailModal({
                       setSelectedFactoryId(e.target.value);
                       setAddError("");
                     }}
-                    disabled={Boolean(batch?.factory_id)}
+                    disabled={Boolean(batch?.factory_id) && batch?.item_count > 0}
                   >
                     <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
                     {factories.map((factory) => (
@@ -192,25 +271,24 @@ function BatchDetailModal({
                     <p className="text-sm text-red-700">{addError}</p>
                   </div>
                 )}
-                <p className="text-xs text-slate">Only items with status PACKED_READY can be dispatched</p>
+                <p className="text-xs text-slate">Only items with status {readyLabel.toUpperCase()} can be issued</p>
               </div>
             </div>
           )}
         </RoleGate>
 
-        {/* Dispatch Section */}
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canDispatch && (
             <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Dispatch</p>
-              <p className="mt-1 text-sm font-medium text-amber-900">Dispatch Batch</p>
+              <p className="mt-1 text-sm font-medium text-amber-900">Issue Voucher</p>
               <div className="mt-3 space-y-3">
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
                   <Select
                     value={selectedFactoryId}
                     onChange={(e) => setSelectedFactoryId(e.target.value)}
-                    disabled={Boolean(batch?.factory_id)}
+                    disabled={Boolean(batch?.factory_id) && batch?.item_count > 0}
                   >
                     <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
                     {factories.map((factory) => (
@@ -242,28 +320,22 @@ function BatchDetailModal({
                   onClick={() => dispatchMutation.mutate()}
                   disabled={dispatchMutation.isPending || !selectedFactoryId}
                 >
-                  {dispatchMutation.isPending ? "Dispatching..." : "Dispatch Batch"}
+                  {dispatchMutation.isPending ? "Issuing..." : "Issue Voucher"}
                 </Button>
-                <p className="text-xs text-slate">
-                  Confirm dispatch date after all items are scanned
-                </p>
+                <p className="text-xs text-slate">Confirm the issue date after all items are scanned</p>
               </div>
             </div>
           )}
         </RoleGate>
 
-        {/* Close Section */}
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canClose && (
             <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Close</p>
-              <p className="mt-1 text-sm font-medium text-emerald-900">Close Batch</p>
+              <p className="mt-1 text-sm font-medium text-emerald-900">Close Voucher</p>
               <div className="mt-3">
-                <Button
-                  onClick={() => closeMutation.mutate()}
-                  disabled={closeMutation.isPending}
-                >
-                  {closeMutation.isPending ? "Closing..." : "Close Batch"}
+                <Button onClick={() => closeMutation.mutate()} disabled={closeMutation.isPending}>
+                  {closeMutation.isPending ? "Closing..." : "Close Voucher"}
                 </Button>
                 <p className="mt-2 text-xs text-slate">
                   All items must have returned (RECEIVED_AT_SHOP or later) to close
@@ -273,27 +345,42 @@ function BatchDetailModal({
           )}
         </RoleGate>
 
-        {/* Actions */}
-        <div className="mb-5">
-          <a
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-ink/12 bg-white/80 px-4 py-2.5 text-sm font-semibold text-ink shadow-[0_2px_8px_rgba(15,23,20,0.04)] transition hover:border-ink/20 hover:bg-white"
-            href={manifestUrl}
-            target="_blank"
-            rel="noreferrer"
+        <div className="mb-5 flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={handleDownloadManifest}
+            disabled={isDownloadingManifest || !batch?.items?.length}
           >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Download Manifest PDF
-          </a>
+            {isDownloadingManifest ? "Downloading..." : "Download Voucher Excel"}
+          </Button>
+          <RoleGate roles={["Admin", "Dispatch"]}>
+            {canClearBatch && (
+              <Button
+                variant="danger"
+                onClick={handleClearBatch}
+                disabled={clearBatchMutation.isPending}
+              >
+                {clearBatchMutation.isPending ? "Clearing..." : "Clear Voucher Items"}
+              </Button>
+            )}
+          </RoleGate>
         </div>
 
-        {/* Items Table */}
+        {actionError && (
+          <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="text-sm text-red-700">{actionError}</p>
+          </div>
+        )}
+
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate">Items in Batch</p>
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate">Items in Voucher</p>
+            {canEditItems && (
+              <p className="text-xs text-slate">Removed items automatically return to {readyLabel}.</p>
+            )}
+          </div>
           {batch?.items?.length > 0 ? (
             <>
-              {/* Desktop Table */}
               <div className="hidden sm:block">
                 <Table>
                   <THead>
@@ -302,42 +389,75 @@ function BatchDetailModal({
                       <TH>Customer</TH>
                       <TH>Status</TH>
                       <TH>Description</TH>
+                      <TH>Actions</TH>
                     </TR>
                   </THead>
                   <TBody>
-                    {batch.items.map((item: any) => (
-                      <TR key={item.job_id}>
-                        <TD className="font-medium">{item.job_id}</TD>
-                        <TD>{item.customer_name || "-"}</TD>
-                        <TD>
-                          <StatusBadge status={item.current_status} />
-                        </TD>
-                        <TD className="max-w-xs truncate text-slate">{item.item_description}</TD>
-                      </TR>
-                    ))}
+                    {batch.items.map((item: any) => {
+                      const canRemoveItem = canEditItems && item.current_status === "DISPATCHED_TO_FACTORY";
+                      return (
+                        <TR key={item.job_id}>
+                          <TD className="font-medium">{item.job_id}</TD>
+                          <TD>{item.customer_name || "-"}</TD>
+                          <TD>
+                            <StatusBadge status={item.current_status} />
+                          </TD>
+                          <TD className="max-w-xs truncate text-slate">{item.item_description}</TD>
+                          <TD>
+                            {canRemoveItem ? (
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => removeItemMutation.mutate(item.job_id)}
+                                disabled={removeItemMutation.isPending}
+                              >
+                                {removeItemMutation.isPending ? "Removing..." : "Remove"}
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-slate">-</span>
+                            )}
+                          </TD>
+                        </TR>
+                      );
+                    })}
                   </TBody>
                 </Table>
               </div>
 
-              {/* Mobile Cards */}
               <div className="space-y-3 sm:hidden">
-                {batch.items.map((item: any) => (
-                  <MobileTableCard key={item.job_id}>
-                    <div className="mb-2 flex items-start justify-between">
-                      <div>
-                        <p className="font-semibold">{item.job_id}</p>
-                        <p className="text-sm text-slate">{item.customer_name || "No customer"}</p>
+                {batch.items.map((item: any) => {
+                  const canRemoveItem = canEditItems && item.current_status === "DISPATCHED_TO_FACTORY";
+                  return (
+                    <MobileTableCard key={item.job_id}>
+                      <div className="mb-2 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{item.job_id}</p>
+                          <p className="text-sm text-slate">{item.customer_name || "No customer"}</p>
+                        </div>
+                        <StatusBadge status={item.current_status} size="sm" />
                       </div>
-                      <StatusBadge status={item.current_status} size="sm" />
-                    </div>
-                    <p className="text-sm text-slate">{item.item_description}</p>
-                  </MobileTableCard>
-                ))}
+                      <p className="text-sm text-slate">{item.item_description}</p>
+                      {canRemoveItem && (
+                        <div className="mt-3 border-t border-ink/6 pt-3">
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => removeItemMutation.mutate(item.job_id)}
+                            disabled={removeItemMutation.isPending}
+                          >
+                            {removeItemMutation.isPending ? "Removing..." : "Remove From Voucher"}
+                          </Button>
+                        </div>
+                      )}
+                    </MobileTableCard>
+                  );
+                })}
               </div>
             </>
           ) : (
             <div className="rounded-xl border border-ink/8 bg-sand/30 py-8 text-center">
-              <p className="text-sm text-slate">No items in this batch yet.</p>
+              <p className="text-sm text-slate">No items in this voucher yet.</p>
             </div>
           )}
         </div>
@@ -351,10 +471,17 @@ export default function BatchesPage() {
   const [month, setMonth] = useState("");
   const [year, setYear] = useState("");
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
+  const [createError, setCreateError] = useState("");
 
   const batchesQuery = useQuery({
     queryKey: ["batches"],
     queryFn: () => request<any[]>("/batches")
+  });
+
+  const factoriesQuery = useQuery({
+    queryKey: ["factories"],
+    queryFn: () => request<any[]>("/factories")
   });
 
   const createMutation = useMutation({
@@ -363,23 +490,49 @@ export default function BatchesPage() {
         method: "POST",
         body: JSON.stringify({
           month: month ? Number(month) : undefined,
-          year: year ? Number(year) : undefined
+          year: year ? Number(year) : undefined,
+          factory_id: selectedCreateFactoryId || undefined
         })
       }),
-    onSuccess: () => batchesQuery.refetch()
+    onSuccess: (createdVoucher: any) => {
+      setCreateError("");
+      setSelectedBatchId(createdVoucher.id);
+      batchesQuery.refetch();
+    },
+    onError: (err: any) => {
+      setCreateError(err?.message || "Failed to create voucher");
+    }
   });
 
   const batches = batchesQuery.data || [];
+  const factories = factoriesQuery.data || [];
+
+  useEffect(() => {
+    if (!factories.length) {
+      setSelectedCreateFactoryId("");
+      return;
+    }
+    if (!selectedCreateFactoryId || !factories.some((factory) => factory.id === selectedCreateFactoryId)) {
+      setSelectedCreateFactoryId(factories[0].id);
+    }
+  }, [factories, selectedCreateFactoryId]);
+
+  const handleCreateVoucher = () => {
+    if (!selectedCreateFactoryId) {
+      setCreateError("Select a factory before creating a voucher");
+      return;
+    }
+    createMutation.mutate();
+  };
 
   return (
     <AppShell>
       <Card className="space-y-5">
-        {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardLabel>Batches</CardLabel>
-            <CardTitle>Monthly Dispatches</CardTitle>
-            <CardDescription>Create or open dispatch batches, manage manifests, and track returns.</CardDescription>
+            <CardLabel>Vouchers</CardLabel>
+            <CardTitle>Issue Vouchers</CardTitle>
+            <CardDescription>Create multiple factory-specific vouchers per day, fix scan mistakes, and export Excel.</CardDescription>
           </div>
           <RoleGate roles={["Admin", "Dispatch"]}>
             <div className="flex flex-wrap items-end gap-2 rounded-xl border border-ink/8 bg-sand/30 p-3">
@@ -401,19 +554,41 @@ export default function BatchesPage() {
                   onChange={(e) => setYear(e.target.value)}
                 />
               </div>
-              <Button size="sm" onClick={() => createMutation.mutate()}>
-                Create / Open
+              <div className="min-w-[12rem]">
+                <label className="mb-1 block text-xs font-medium text-slate">Factory</label>
+                <Select
+                  value={selectedCreateFactoryId}
+                  onChange={(e) => {
+                    setSelectedCreateFactoryId(e.target.value);
+                    setCreateError("");
+                  }}
+                >
+                  <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
+                  {factories.map((factory) => (
+                    <option key={factory.id} value={factory.id}>
+                      {factory.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <Button size="sm" onClick={handleCreateVoucher} disabled={createMutation.isPending || !selectedCreateFactoryId}>
+                {createMutation.isPending ? "Creating..." : "Create Voucher"}
               </Button>
             </div>
           </RoleGate>
         </div>
 
-        {/* Desktop Table */}
+        {createError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="text-sm text-red-700">{createError}</p>
+          </div>
+        )}
+
         <div className="hidden sm:block">
           <Table>
             <THead>
               <TR>
-                <TH>Batch</TH>
+                <TH>Voucher</TH>
                 <TH>Status</TH>
                 <TH>Factory</TH>
                 <TH>Dispatch Date</TH>
@@ -438,11 +613,7 @@ export default function BatchesPage() {
                   </TD>
                   <TD>{batch.item_count}</TD>
                   <TD>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSelectedBatchId(batch.id)}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
                       View
                     </Button>
                   </TD>
@@ -452,7 +623,6 @@ export default function BatchesPage() {
           </Table>
         </div>
 
-        {/* Mobile Cards */}
         <div className="space-y-3 sm:hidden">
           {batches.map((batch) => (
             <MobileTableCard key={batch.id}>
@@ -488,7 +658,7 @@ export default function BatchesPage() {
 
         {!batches.length && (
           <div className="py-12 text-center">
-            <p className="text-slate">No batches found.</p>
+            <p className="text-slate">No vouchers found.</p>
           </div>
         )}
       </Card>

@@ -188,6 +188,7 @@ class UploadResponse(BaseModel):
 class BatchCreate(BaseModel):
     year: Optional[int] = None
     month: Optional[int] = None
+    factory_id: Optional[UUID] = None
     expected_return_date: Optional[datetime] = None
 
 
