@@ -519,7 +519,6 @@ export default function BatchesPage() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
   const [createError, setCreateError] = useState("");
-  const [todayLabel, setTodayLabel] = useState("");
 
   const batchesQuery = useQuery({
     queryKey: ["batches"],
@@ -552,8 +551,6 @@ export default function BatchesPage() {
   const batches = batchesQuery.data || [];
   const factories = factoriesQuery.data || [];
   const activeFactories = factories.filter((factory) => factory.is_active !== false);
-  const selectedCreateFactoryName =
-    activeFactories.find((factory) => factory.id === selectedCreateFactoryId)?.name || "";
 
   useEffect(() => {
     if (!activeFactories.length) {
@@ -568,19 +565,13 @@ export default function BatchesPage() {
     }
   }, [activeFactories, selectedCreateFactoryId]);
 
-  useEffect(() => {
-    setTodayLabel(formatDateTime(new Date()));
-  }, []);
-
-  const handleCreateVoucher = (factoryId?: string) => {
-    const targetFactoryId = factoryId || selectedCreateFactoryId;
-    if (!targetFactoryId) {
+  const handleCreateVoucher = () => {
+    if (!selectedCreateFactoryId) {
       setCreateError("Select a factory before creating a voucher");
       return;
     }
-    setSelectedCreateFactoryId(targetFactoryId);
     setCreateError("");
-    createMutation.mutate(targetFactoryId);
+    createMutation.mutate(selectedCreateFactoryId);
   };
 
   return (
@@ -594,64 +585,35 @@ export default function BatchesPage() {
           </div>
           <RoleGate roles={["Admin", "Dispatch"]}>
             <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:min-w-[28rem]">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate">Quick Create</p>
-                  <p className="mt-1 text-sm font-medium text-ink">Choose a factory and open a voucher immediately.</p>
-                  <p className="mt-1 text-xs text-slate">Voucher number and created time are assigned automatically.</p>
-                </div>
-                <div className="rounded-xl border border-ink/8 bg-white/80 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate">Today</p>
-                  <p className="mt-1 text-sm font-medium text-ink">{todayLabel || "Set automatically on create"}</p>
-                </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-slate">Create Voucher</p>
+                <p className="mt-1 text-sm font-medium text-ink">Select the destination factory and open a new voucher.</p>
+                <p className="mt-1 text-xs text-slate">Voucher number and created time are assigned automatically.</p>
               </div>
               {activeFactories.length ? (
                 <>
-                  <div className="flex flex-wrap gap-2">
-                    {activeFactories.map((factory) => (
-                      <Button
-                        key={factory.id}
-                        size="sm"
-                        variant={factory.id === selectedCreateFactoryId ? "primary" : "outline"}
-                        onClick={() => handleCreateVoucher(factory.id)}
-                        disabled={createMutation.isPending}
-                      >
-                        {createMutation.isPending && factory.id === selectedCreateFactoryId
-                          ? "Creating..."
-                          : `New ${factory.name} Voucher`}
-                      </Button>
-                    ))}
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate">Factory</label>
+                    <Select
+                      value={selectedCreateFactoryId}
+                      onChange={(e) => {
+                        setSelectedCreateFactoryId(e.target.value);
+                        setCreateError("");
+                      }}
+                    >
+                      {activeFactories.map((factory) => (
+                        <option key={factory.id} value={factory.id}>
+                          {factory.name}
+                        </option>
+                      ))}
+                    </Select>
                   </div>
-                  {activeFactories.length > 1 && (
-                    <div className="flex flex-col gap-2 border-t border-ink/8 pt-3 sm:flex-row sm:items-end">
-                      <div className="min-w-[12rem] flex-1">
-                        <label className="mb-1 block text-xs font-medium text-slate">Selected factory</label>
-                        <Select
-                          value={selectedCreateFactoryId}
-                          onChange={(e) => {
-                            setSelectedCreateFactoryId(e.target.value);
-                            setCreateError("");
-                          }}
-                        >
-                          {activeFactories.map((factory) => (
-                            <option key={factory.id} value={factory.id}>
-                              {factory.name}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleCreateVoucher()}
-                        disabled={createMutation.isPending || !selectedCreateFactoryId}
-                      >
-                        {createMutation.isPending
-                          ? "Creating..."
-                          : `Create ${selectedCreateFactoryName || "Voucher"}`}
-                      </Button>
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between gap-3 border-t border-ink/8 pt-3">
+                    <p className="text-xs text-slate">New factories appear here automatically after refresh.</p>
+                    <Button onClick={handleCreateVoucher} disabled={createMutation.isPending || !selectedCreateFactoryId}>
+                      {createMutation.isPending ? "Creating..." : "Create Voucher"}
+                    </Button>
+                  </div>
                 </>
               ) : (
                 <div className="rounded-xl border border-ink/8 bg-white/70 px-3 py-3 text-sm text-slate">
@@ -694,7 +656,7 @@ export default function BatchesPage() {
                   <TD>{batch.item_count}</TD>
                   <TD>
                     <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
-                      View
+                      Open
                     </Button>
                   </TD>
                 </TR>
@@ -729,7 +691,7 @@ export default function BatchesPage() {
                   className="w-full"
                   onClick={() => setSelectedBatchId(batch.id)}
                 >
-                  View Details
+                  Open Voucher
                 </Button>
               </div>
             </MobileTableCard>
