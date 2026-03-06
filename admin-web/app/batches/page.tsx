@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -12,6 +12,7 @@ import { Input, Select } from "@/components/ui/input";
 import { MobileTableCard, MobileTableRow, Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate } from "@/lib/auth";
 import { statusLabel } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -76,6 +77,10 @@ function BatchDetailModal({
   const [expectedReturn, setExpectedReturn] = useState("");
   const [selectedFactoryId, setSelectedFactoryId] = useState("");
   const [isDownloadingManifest, setIsDownloadingManifest] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<"idle" | "success" | "error">("idle");
+  const [scanFeedbackMessage, setScanFeedbackMessage] = useState("Scanner ready");
+  const scanInputRef = useRef<HTMLInputElement>(null);
+  const scanFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const batchQuery = useQuery({
     queryKey: ["batch", batchId],
@@ -88,8 +93,8 @@ function BatchDetailModal({
   });
 
   const addItemMutation = useMutation({
-    mutationFn: () =>
-      request(`/jobs/${jobIdToAdd.trim()}/scan`, {
+    mutationFn: (jobId: string) =>
+      request(`/jobs/${jobId}/scan`, {
         method: "POST",
         body: JSON.stringify({
           to_status: "DISPATCHED_TO_FACTORY",
@@ -98,14 +103,21 @@ function BatchDetailModal({
           remarks: "Dispatch scan"
         })
       }),
-    onSuccess: () => {
+    onSuccess: (_data, jobId) => {
       setJobIdToAdd("");
       setAddError("");
       setActionError("");
+      setScanFeedback("success");
+      setScanFeedbackMessage(`${jobId} added to ${batch?.batch_code || "voucher"}`);
+      focusScanInput();
       batchQuery.refetch();
     },
-    onError: (err: any) => {
-      setAddError(err?.message || "Failed to add item");
+    onError: (err: any, jobId) => {
+      const message = err?.message || "Failed to add item";
+      setAddError(message);
+      setScanFeedback("error");
+      setScanFeedbackMessage(`${jobId}: ${message}`);
+      focusScanInput(true);
     }
   });
 
@@ -136,14 +148,6 @@ function BatchDetailModal({
       setActionError(err?.message || "Failed to clear voucher");
     }
   });
-
-  const handleAddItem = () => {
-    if (!selectedFactoryId) {
-      setAddError("Select a factory before dispatching");
-      return;
-    }
-    addItemMutation.mutate();
-  };
 
   const dispatchMutation = useMutation({
     mutationFn: () =>
@@ -181,6 +185,11 @@ function BatchDetailModal({
   const batch = batchQuery.data;
   const factories = factoriesQuery.data || [];
   const readyLabel = statusLabel("PACKED_READY");
+  const selectedFactoryName =
+    batch?.factory_name || factories.find((factory) => factory.id === selectedFactoryId)?.name || "";
+  const idleScanFeedbackMessage = selectedFactoryId
+    ? `Scanner ready for ${selectedFactoryName || "selected factory"}`
+    : "Select a factory before scanning";
 
   useEffect(() => {
     setSelectedFactoryId(batch?.factory_id || "");
@@ -194,14 +203,61 @@ function BatchDetailModal({
     setExpectedReturn(batch.expected_return_date ? toDateInputValue(batch.expected_return_date) : "");
   }, [batch?.id, batch?.dispatch_date, batch?.expected_return_date]);
 
+  useEffect(() => {
+    return () => {
+      if (scanFeedbackTimerRef.current) {
+        clearTimeout(scanFeedbackTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (scanFeedback !== "idle") {
+      if (scanFeedbackTimerRef.current) {
+        clearTimeout(scanFeedbackTimerRef.current);
+      }
+      scanFeedbackTimerRef.current = setTimeout(() => {
+        setScanFeedback("idle");
+        scanFeedbackTimerRef.current = null;
+      }, 1400);
+      return;
+    }
+    if (scanFeedbackTimerRef.current) {
+      clearTimeout(scanFeedbackTimerRef.current);
+      scanFeedbackTimerRef.current = null;
+    }
+    setScanFeedbackMessage(idleScanFeedbackMessage);
+  }, [idleScanFeedbackMessage, scanFeedback]);
+
   const canAddItems = batch?.status === "CREATED";
   const canDispatch = batch?.status === "CREATED" && batch?.item_count > 0;
   const canClose = batch?.status === "DISPATCHED";
   const canEditItems = Boolean(batch) && batch.status !== "CLOSED";
+  const isVoucherFactoryLocked = Boolean(batch?.factory_id);
   const canClearBatch =
     canEditItems &&
     Boolean(batch?.items?.length) &&
     batch.items.every((item: any) => item.current_status === "DISPATCHED_TO_FACTORY");
+
+  const focusScanInput = (select = false) => {
+    setTimeout(() => {
+      const input = scanInputRef.current;
+      if (!input) {
+        return;
+      }
+      input.focus();
+      if (select) {
+        input.select();
+      }
+    }, 0);
+  };
+
+  useEffect(() => {
+    if (!canAddItems) {
+      return;
+    }
+    focusScanInput();
+  }, [batch?.id, canAddItems, selectedFactoryId]);
 
   const handleDownloadManifest = async () => {
     setActionError("");
@@ -229,6 +285,29 @@ function BatchDetailModal({
     }
     setActionError("");
     clearBatchMutation.mutate();
+  };
+
+  const handleAddItem = () => {
+    if (addItemMutation.isPending) {
+      return;
+    }
+    const normalizedJobId = jobIdToAdd.trim().toUpperCase();
+    if (!normalizedJobId) {
+      focusScanInput();
+      return;
+    }
+    if (!selectedFactoryId) {
+      const message = "Select a factory before dispatching";
+      setAddError(message);
+      setScanFeedback("error");
+      setScanFeedbackMessage(message);
+      focusScanInput(true);
+      return;
+    }
+    setActionError("");
+    setAddError("");
+    setJobIdToAdd(normalizedJobId);
+    addItemMutation.mutate(normalizedJobId);
   };
 
   return (
@@ -279,40 +358,93 @@ function BatchDetailModal({
               <p className="text-xs font-semibold uppercase tracking-wider text-slate">Add Item</p>
               <p className="mt-1 text-sm font-medium">Scan items into this voucher</p>
               <div className="mt-3 space-y-3">
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
-                  <Select
-                    value={selectedFactoryId}
-                    onChange={(e) => {
-                      setSelectedFactoryId(e.target.value);
-                      setAddError("");
-                    }}
-                    disabled={Boolean(batch?.factory_id) && batch?.item_count > 0}
-                  >
-                    <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
-                    {factories.map((factory) => (
-                      <option key={factory.id} value={factory.id}>
-                        {factory.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {!factories.length && (
-                    <p className="mt-1 text-xs text-slate">Add factories in Settings to enable dispatch.</p>
-                  )}
-                </div>
+                {!isVoucherFactoryLocked && (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
+                    <Select
+                      value={selectedFactoryId}
+                      onChange={(e) => {
+                        setSelectedFactoryId(e.target.value);
+                        setAddError("");
+                      }}
+                    >
+                      <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
+                      {factories.map((factory) => (
+                        <option key={factory.id} value={factory.id}>
+                          {factory.name}
+                        </option>
+                      ))}
+                    </Select>
+                    {!factories.length && (
+                      <p className="mt-1 text-xs text-slate">Add factories in Settings to enable dispatch.</p>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input
-                    className="flex-1"
+                    ref={scanInputRef}
+                    className={cn(
+                      "flex-1 transition-all duration-200",
+                      scanFeedback === "success" && "border-emerald-300 bg-emerald-50/80 focus:border-emerald-400 focus:ring-emerald-100",
+                      scanFeedback === "error" && "border-red-300 bg-red-50/80 focus:border-red-400 focus:ring-red-100"
+                    )}
                     placeholder="Scan Job ID (e.g., DJ-2026-000001)"
                     value={jobIdToAdd}
-                    onChange={(e) => setJobIdToAdd(e.target.value)}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    onChange={(e) => {
+                      setJobIdToAdd(e.target.value);
+                      setAddError("");
+                      if (scanFeedback !== "idle") {
+                        setScanFeedback("idle");
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddItem();
+                      }
+                    }}
                   />
                   <Button
                     onClick={handleAddItem}
-                    disabled={!jobIdToAdd.trim() || addItemMutation.isPending || !selectedFactoryId}
+                    className={cn(
+                      "min-w-[7.5rem] transition-all duration-200",
+                      scanFeedback === "success" && "bg-emerald-600 hover:bg-emerald-600 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]",
+                      scanFeedback === "error" && "bg-red-600 hover:bg-red-600 shadow-[0_0_0_3px_rgba(239,68,68,0.18)]"
+                    )}
+                    disabled={addItemMutation.isPending || !selectedFactoryId}
                   >
-                    {addItemMutation.isPending ? "Scanning..." : "Scan"}
+                    {addItemMutation.isPending
+                      ? "Scanning..."
+                      : scanFeedback === "success"
+                        ? "Added"
+                        : scanFeedback === "error"
+                          ? "Retry"
+                          : "Scan"}
                   </Button>
+                </div>
+                <div
+                  aria-live="polite"
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-all duration-200",
+                    scanFeedback === "success" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+                    scanFeedback === "error" && "border-red-200 bg-red-50 text-red-700",
+                    scanFeedback === "idle" && "border-ink/8 bg-sand/30 text-slate"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-2.5 w-2.5 rounded-full",
+                      addItemMutation.isPending && "animate-pulse bg-gold",
+                      !addItemMutation.isPending && scanFeedback === "success" && "bg-emerald-500",
+                      !addItemMutation.isPending && scanFeedback === "error" && "bg-red-500",
+                      !addItemMutation.isPending && scanFeedback === "idle" && "bg-slate/50"
+                    )}
+                  />
+                  <span>{addItemMutation.isPending ? "Validating scan..." : scanFeedbackMessage}</span>
                 </div>
                 {addError && (
                   <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
@@ -331,21 +463,22 @@ function BatchDetailModal({
               <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Dispatch</p>
               <p className="mt-1 text-sm font-medium text-amber-900">Issue Voucher</p>
               <div className="mt-3 space-y-3">
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
-                  <Select
-                    value={selectedFactoryId}
-                    onChange={(e) => setSelectedFactoryId(e.target.value)}
-                    disabled={Boolean(batch?.factory_id) && batch?.item_count > 0}
-                  >
-                    <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
-                    {factories.map((factory) => (
-                      <option key={factory.id} value={factory.id}>
-                        {factory.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+                {!isVoucherFactoryLocked && (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
+                    <Select
+                      value={selectedFactoryId}
+                      onChange={(e) => setSelectedFactoryId(e.target.value)}
+                    >
+                      <option value="">{factories.length ? "Select factory" : "No factories available"}</option>
+                      {factories.map((factory) => (
+                        <option key={factory.id} value={factory.id}>
+                          {factory.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate">Issue Date</label>

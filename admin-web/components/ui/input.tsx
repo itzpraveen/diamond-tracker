@@ -6,9 +6,13 @@ type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
   error?: boolean;
 };
 
-export function Input({ className, error, ...props }: InputProps) {
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
+  { className, error, ...props },
+  ref
+) {
   return (
     <input
+      ref={ref}
       className={cn(
         "w-full rounded-xl border bg-white/90 px-4 py-2.5 text-sm outline-none transition-all placeholder:text-slate/60",
         "focus:ring-2 focus:ring-offset-0",
@@ -21,7 +25,7 @@ export function Input({ className, error, ...props }: InputProps) {
       {...props}
     />
   );
-}
+});
 
 type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
   error?: boolean;
