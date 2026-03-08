@@ -10,13 +10,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, Factory, Incident, ItemJob, Role, Status, StatusEvent, User
+from app.models import Batch, BatchStatus, Factory, Incident, IncidentStatus, ItemJob, Role, Status, StatusEvent, User
 from app.schemas import (
     AgingBucket,
     BatchDelay,
     ExcelExportRequest,
     FactorySummary,
     JobOut,
+    OpsDeltaMetric,
+    OpsSummary,
     RepairTrackingReport,
     TurnaroundMetrics,
     UserActivity,
@@ -37,6 +39,14 @@ def _stream_csv_rows(header: list[str], rows, row_builder):
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)
+
+
+def _count(query) -> int:
+    return int(query.scalar() or 0)
+
+
+def _delta_metric(total: int, today: int, yesterday: int) -> OpsDeltaMetric:
+    return OpsDeltaMetric(total=total, today=today, yesterday=yesterday, delta=today - yesterday)
 
 
 @router.get("/pending-aging", response_model=List[AgingBucket])
@@ -130,7 +140,14 @@ def turnaround(
 @router.get("/batch-delays", response_model=List[BatchDelay])
 def batch_delays(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
     now = datetime.now(timezone.utc)
-    batches = db.query(Batch).all()
+    batches = (
+        db.query(Batch)
+        .filter(
+            Batch.is_archived.is_(False),
+            Batch.status.in_([BatchStatus.DISPATCHED, BatchStatus.RECEIVED_AT_FACTORY]),
+        )
+        .all()
+    )
     delays = []
     for batch in batches:
         delay_days = 0
@@ -146,6 +163,208 @@ def batch_delays(db: Session = Depends(get_db), user=Depends(require_roles(Role.
             )
         )
     return delays
+
+
+@router.get("/ops-summary", response_model=OpsSummary)
+def ops_summary(
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.QC_STOCK)),
+):
+    now = datetime.now(timezone.utc)
+    start_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_yesterday = start_today - timedelta(days=1)
+    end_today = start_today + timedelta(days=1)
+    end_yesterday = start_today
+
+    not_returned_statuses = [
+        Status.PURCHASED,
+        Status.PACKED_READY,
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.ON_HOLD,
+    ]
+    active_statuses = [
+        Status.PURCHASED,
+        Status.PACKED_READY,
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.ON_HOLD,
+    ]
+    at_factory_statuses = [Status.DISPATCHED_TO_FACTORY, Status.RECEIVED_AT_FACTORY]
+    awaiting_closure_statuses = [
+        Status.RETURNED_FROM_FACTORY,
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+    ]
+    active_delayed_batch_statuses = [BatchStatus.DISPATCHED, BatchStatus.RECEIVED_AT_FACTORY]
+    base_time = func.coalesce(ItemJob.last_scan_at, ItemJob.created_at)
+
+    open_incidents_total = _count(
+        db.query(func.count(Incident.id)).filter(Incident.status == IncidentStatus.OPEN)
+    )
+    open_incidents_today = _count(
+        db.query(func.count(Incident.id)).filter(
+            Incident.status == IncidentStatus.OPEN,
+            Incident.created_at >= start_today,
+            Incident.created_at < end_today,
+        )
+    )
+    open_incidents_yesterday = _count(
+        db.query(func.count(Incident.id)).filter(
+            Incident.status == IncidentStatus.OPEN,
+            Incident.created_at >= start_yesterday,
+            Incident.created_at < end_yesterday,
+        )
+    )
+
+    overdue_total = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.target_return_date.isnot(None),
+            ItemJob.target_return_date < now,
+            ItemJob.current_status.in_(not_returned_statuses),
+        )
+    )
+    overdue_today = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.target_return_date >= start_today,
+            ItemJob.target_return_date < end_today,
+            ItemJob.current_status.in_(not_returned_statuses),
+        )
+    )
+    overdue_yesterday = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.target_return_date >= start_yesterday,
+            ItemJob.target_return_date < end_yesterday,
+            ItemJob.current_status.in_(not_returned_statuses),
+        )
+    )
+
+    aged_over_7_total = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.current_status.in_(active_statuses),
+            base_time < now - timedelta(days=7),
+        )
+    )
+    aged_over_7_today = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.current_status.in_(active_statuses),
+            base_time >= start_today - timedelta(days=7),
+            base_time < end_today - timedelta(days=7),
+        )
+    )
+    aged_over_7_yesterday = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.current_status.in_(active_statuses),
+            base_time >= start_yesterday - timedelta(days=7),
+            base_time < end_yesterday - timedelta(days=7),
+        )
+    )
+    aged_over_15 = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.current_status.in_(active_statuses),
+            base_time < now - timedelta(days=15),
+        )
+    )
+
+    delayed_total = _count(
+        db.query(func.count(Batch.id))
+        .select_from(Batch)
+        .filter(
+            Batch.is_archived.is_(False),
+            Batch.status.in_(active_delayed_batch_statuses),
+            Batch.dispatch_date.isnot(None),
+            Batch.expected_return_date.isnot(None),
+            Batch.expected_return_date < now,
+        )
+    )
+    delayed_today = _count(
+        db.query(func.count(Batch.id))
+        .select_from(Batch)
+        .filter(
+            Batch.is_archived.is_(False),
+            Batch.status.in_(active_delayed_batch_statuses),
+            Batch.dispatch_date.isnot(None),
+            Batch.expected_return_date >= start_today,
+            Batch.expected_return_date < end_today,
+        )
+    )
+    delayed_yesterday = _count(
+        db.query(func.count(Batch.id))
+        .select_from(Batch)
+        .filter(
+            Batch.is_archived.is_(False),
+            Batch.status.in_(active_delayed_batch_statuses),
+            Batch.dispatch_date.isnot(None),
+            Batch.expected_return_date >= start_yesterday,
+            Batch.expected_return_date < end_yesterday,
+        )
+    )
+
+    at_factory = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(ItemJob.is_archived.is_(False), ItemJob.current_status.in_(at_factory_statuses))
+    )
+    received_at_factory = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(ItemJob.is_archived.is_(False), ItemJob.current_status == Status.RECEIVED_AT_FACTORY)
+    )
+    awaiting_closure = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(ItemJob.is_archived.is_(False), ItemJob.current_status.in_(awaiting_closure_statuses))
+    )
+    awaiting_closure_overdue = _count(
+        db.query(func.count(ItemJob.id))
+        .select_from(ItemJob)
+        .filter(
+            ItemJob.is_archived.is_(False),
+            ItemJob.current_status.in_(awaiting_closure_statuses),
+            ItemJob.target_return_date.isnot(None),
+            ItemJob.target_return_date < now,
+        )
+    )
+
+    return OpsSummary(
+        attention_count=open_incidents_total + overdue_total + delayed_total,
+        open_incidents=_delta_metric(open_incidents_total, open_incidents_today, open_incidents_yesterday),
+        overdue_returns=_delta_metric(overdue_total, overdue_today, overdue_yesterday),
+        aged_over_7=_delta_metric(aged_over_7_total, aged_over_7_today, aged_over_7_yesterday),
+        delayed_vouchers=_delta_metric(delayed_total, delayed_today, delayed_yesterday),
+        aged_over_15=aged_over_15,
+        at_factory=at_factory,
+        received_at_factory=received_at_factory,
+        awaiting_closure=awaiting_closure,
+        awaiting_closure_overdue=awaiting_closure_overdue,
+    )
 
 
 @router.get("/repair-targets", response_model=RepairTrackingReport)

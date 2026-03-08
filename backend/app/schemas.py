@@ -321,6 +321,26 @@ class UserActivity(BaseModel):
     scans: int
 
 
+class OpsDeltaMetric(BaseModel):
+    total: int
+    today: int
+    yesterday: int
+    delta: int
+
+
+class OpsSummary(BaseModel):
+    attention_count: int
+    open_incidents: OpsDeltaMetric
+    overdue_returns: OpsDeltaMetric
+    aged_over_7: OpsDeltaMetric
+    delayed_vouchers: OpsDeltaMetric
+    aged_over_15: int
+    at_factory: int
+    received_at_factory: int
+    awaiting_closure: int
+    awaiting_closure_overdue: int
+
+
 class ExcelExportRequest(BaseModel):
     job_ids: List[str]
 

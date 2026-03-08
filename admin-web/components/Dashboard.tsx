@@ -93,6 +93,26 @@ type AuditEventRow = {
   override_reason?: string | null;
 };
 
+type OpsDeltaMetric = {
+  total: number;
+  today: number;
+  yesterday: number;
+  delta: number;
+};
+
+type OpsSummaryRow = {
+  attention_count: number;
+  open_incidents: OpsDeltaMetric;
+  overdue_returns: OpsDeltaMetric;
+  aged_over_7: OpsDeltaMetric;
+  delayed_vouchers: OpsDeltaMetric;
+  aged_over_15: number;
+  at_factory: number;
+  received_at_factory: number;
+  awaiting_closure: number;
+  awaiting_closure_overdue: number;
+};
+
 const tooltipStyle = {
   backgroundColor: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(16,23,20,0.1)",
@@ -171,17 +191,14 @@ function truncate(text: string, maxLength = 58) {
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
-function countOnDay(values: Array<string | null | undefined>, date = new Date()) {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return values.reduce((count, value) => {
-    if (!value) return count;
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return count;
-    return parsed >= start && parsed < end ? count + 1 : count;
-  }, 0);
+function formatDelta(delta: number) {
+  if (delta === 0) return "flat vs yesterday";
+  return `${delta > 0 ? "+" : ""}${delta} vs yesterday`;
+}
+
+function formatDailyContext(today: number, delta: number, noun: string, zeroLabel: string) {
+  if (today === 0 && delta === 0) return zeroLabel;
+  return `${today} ${noun} today • ${formatDelta(delta)}`;
 }
 
 function KpiCard({
@@ -365,6 +382,12 @@ export default function Dashboard() {
     enabled: isAdmin
   });
 
+  const opsSummaryQuery = useQuery({
+    queryKey: ["reports", "ops-summary"],
+    queryFn: () => request<OpsSummaryRow>("/reports/ops-summary"),
+    enabled: canViewOps
+  });
+
   const isRefreshing =
     agingQuery.isFetching ||
     turnaroundQuery.isFetching ||
@@ -373,11 +396,13 @@ export default function Dashboard() {
     delaysQuery.isFetching ||
     factorySummaryQuery.isFetching ||
     incidentsQuery.isFetching ||
-    recentActivityQuery.isFetching;
+    recentActivityQuery.isFetching ||
+    opsSummaryQuery.isFetching;
 
   const refreshAll = async () => {
     const refreshers: Array<Promise<unknown>> = [
       agingQuery.refetch(),
+      opsSummaryQuery.refetch(),
       repairTargetsQuery.refetch(),
       incidentsQuery.refetch(),
       delaysQuery.refetch(),
@@ -424,11 +449,7 @@ export default function Dashboard() {
   const repairTargets = repairTargetsQuery.data || { overdue: [], approaching: [], uncollected: [] };
   const openIncidents = incidentsQuery.data || [];
   const recentActivity = recentActivityQuery.data || [];
-
-  const overdueCount = repairTargets.overdue.length;
-  const delayedVoucherCount = delayedBatches.length;
-  const openIncidentCount = openIncidents.length;
-  const attentionCount = overdueCount + delayedVoucherCount + openIncidentCount;
+  const opsSummary = opsSummaryQuery.data;
 
   const stuckOver7Days = useMemo(
     () =>
@@ -438,8 +459,7 @@ export default function Dashboard() {
       }, 0),
     [agingRows]
   );
-
-  const agedOver15Days = useMemo(
+  const derivedAgedOver15Days = useMemo(
     () =>
       agingRows.reduce((total, row) => {
         if (row.status === "CANCELLED") return total;
@@ -447,26 +467,59 @@ export default function Dashboard() {
       }, 0),
     [agingRows]
   );
-
-  const atFactoryCount = useMemo(
+  const derivedAtFactoryCount = useMemo(
     () => (factorySummaryQuery.data || []).reduce((total, row) => total + row.at_factory, 0),
     [factorySummaryQuery.data]
   );
-
-  const expectedFromFactoryCount = useMemo(
+  const derivedReceivedAtFactoryCount = useMemo(
     () => (factorySummaryQuery.data || []).reduce((total, row) => total + row.expected_from_factory, 0),
     [factorySummaryQuery.data]
   );
-
-  const returnedPendingCount = useMemo(
-    () => (factorySummaryQuery.data || []).reduce((total, row) => total + row.returned_pending, 0),
-    [factorySummaryQuery.data]
+  const derivedAwaitingClosureCount = useMemo(
+    () =>
+      (factorySummaryQuery.data || []).reduce((total, row) => total + row.returned_pending, 0) +
+      repairTargets.uncollected.length,
+    [factorySummaryQuery.data, repairTargets.uncollected.length]
   );
 
-  const awaitingClosureCount = returnedPendingCount + repairTargets.uncollected.length;
-  const openIncidentsToday = countOnDay(openIncidents.map((incident) => incident.created_at));
-  const overdueToday = countOnDay(repairTargets.overdue.map((job) => job.target_return_date));
-  const delayedToday = countOnDay(delayedBatches.map((batch) => batch.expected_return_date));
+  const openIncidentCount = opsSummary?.open_incidents.total ?? openIncidents.length;
+  const overdueCount = opsSummary?.overdue_returns.total ?? repairTargets.overdue.length;
+  const delayedVoucherCount = opsSummary?.delayed_vouchers.total ?? delayedBatches.length;
+  const attentionCount = opsSummary?.attention_count ?? (overdueCount + delayedVoucherCount + openIncidentCount);
+  const agedOver15Days = opsSummary?.aged_over_15 ?? derivedAgedOver15Days;
+  const stuckOver7DaysCount = opsSummary?.aged_over_7.total ?? stuckOver7Days;
+  const atFactoryCount = opsSummary?.at_factory ?? derivedAtFactoryCount;
+  const expectedFromFactoryCount = opsSummary?.received_at_factory ?? derivedReceivedAtFactoryCount;
+  const awaitingClosureCount = opsSummary?.awaiting_closure ?? derivedAwaitingClosureCount;
+  const awaitingClosureOverdueCount = opsSummary?.awaiting_closure_overdue ?? repairTargets.uncollected.length;
+
+  const openIncidentsContext = opsSummary
+    ? formatDailyContext(opsSummary.open_incidents.today, opsSummary.open_incidents.delta, "opened", "No new incidents today")
+    : "Live summary unavailable";
+  const overdueContext = opsSummary
+    ? formatDailyContext(
+        opsSummary.overdue_returns.today,
+        opsSummary.overdue_returns.delta,
+        "crossed target",
+        "No new overdue returns today"
+      )
+    : "Live summary unavailable";
+  const agedContext = opsSummary
+    ? formatDailyContext(
+        opsSummary.aged_over_7.today,
+        opsSummary.aged_over_7.delta,
+        "crossed 7 days",
+        "No new 7-day aging today"
+      )
+    : `${agedOver15Days} aged beyond 15 days`;
+  const delayedContext = opsSummary
+    ? formatDailyContext(
+        opsSummary.delayed_vouchers.today,
+        opsSummary.delayed_vouchers.delta,
+        "crossed SLA",
+        "No new voucher delays today"
+      )
+    : "Live summary unavailable";
 
   const lastUpdated = Math.max(
     agingQuery.dataUpdatedAt || 0,
@@ -476,7 +529,8 @@ export default function Dashboard() {
     delaysQuery.dataUpdatedAt || 0,
     factorySummaryQuery.dataUpdatedAt || 0,
     incidentsQuery.dataUpdatedAt || 0,
-    recentActivityQuery.dataUpdatedAt || 0
+    recentActivityQuery.dataUpdatedAt || 0,
+    opsSummaryQuery.dataUpdatedAt || 0
   );
 
   const summaryParts = [
@@ -498,8 +552,8 @@ export default function Dashboard() {
       : "Overdue returns, voucher delays, and incidents are currently clear.";
 
   const secondaryLine =
-    attentionCount > 0 || stuckOver7Days > 0 || atFactoryCount > 0
-      ? `${stuckOver7Days} ${pluralize(stuckOver7Days, "item")} aged over 7 days. ${atFactoryCount} currently at factory.`
+    attentionCount > 0 || stuckOver7DaysCount > 0 || atFactoryCount > 0
+      ? `${stuckOver7DaysCount} ${pluralize(stuckOver7DaysCount, "item")} aged over 7 days. ${atFactoryCount} currently at factory.`
       : "Factory queue and aging pressure are within normal range.";
 
   const primaryAction =
@@ -546,7 +600,7 @@ export default function Dashboard() {
         <KpiCard
           label="Open Incidents"
           value={openIncidentCount}
-          context={openIncidentsToday ? `${openIncidentsToday} opened today` : "No new incidents today"}
+          context={openIncidentsContext}
           caption="Exceptions still waiting for investigation or resolution."
           tone={openIncidentCount > 0 ? "danger" : "success"}
           href="/incidents?status=OPEN"
@@ -554,23 +608,23 @@ export default function Dashboard() {
         <KpiCard
           label="Overdue Returns"
           value={overdueCount}
-          context={overdueToday ? `${overdueToday} became overdue today` : "No new overdue returns today"}
+          context={overdueContext}
           caption="Items already past target return date and not yet closed."
           tone={overdueCount > 0 ? "danger" : "success"}
           href="/items?attention=overdue_returns"
         />
         <KpiCard
           label="Aged > 7 Days"
-          value={stuckOver7Days}
-          context={agedOver15Days ? `${agedOver15Days} aged beyond 15 days` : "No deep aging beyond 15 days"}
+          value={stuckOver7DaysCount}
+          context={agedContext}
           caption="Active items sitting too long without the next handoff."
-          tone={stuckOver7Days > 0 ? "warning" : "success"}
+          tone={stuckOver7DaysCount > 0 ? "warning" : "success"}
           href="/items?attention=aged_over_7"
         />
         <KpiCard
           label="Delayed Vouchers"
           value={delayedVoucherCount}
-          context={delayedToday ? `${delayedToday} crossed SLA today` : "No new voucher delays today"}
+          context={delayedContext}
           caption="Vouchers whose expected return date has already passed."
           tone={delayedVoucherCount > 0 ? "warning" : "success"}
           href="/batches?delayed=true"
@@ -578,7 +632,7 @@ export default function Dashboard() {
         <KpiCard
           label="Currently At Factory"
           value={atFactoryCount}
-          context={expectedFromFactoryCount ? `${expectedFromFactoryCount} already marked received` : "No items received at factory yet"}
+          context={expectedFromFactoryCount ? `${expectedFromFactoryCount} already received at factory` : "No items received at factory yet"}
           caption="Items still moving through the factory pipeline."
           tone={atFactoryCount > 0 ? "default" : "success"}
           href="/items?attention=at_factory"
@@ -586,7 +640,7 @@ export default function Dashboard() {
         <KpiCard
           label="Awaiting Closure"
           value={awaitingClosureCount}
-          context={repairTargets.uncollected.length ? `${repairTargets.uncollected.length} already past target date` : "No post-return aging detected"}
+          context={awaitingClosureOverdueCount ? `${awaitingClosureOverdueCount} already past target date` : "No post-return aging detected"}
           caption="Returned or ready items still waiting for the final closure step."
           tone={awaitingClosureCount > 0 ? "warning" : "success"}
           href="/items?attention=awaiting_closure"
