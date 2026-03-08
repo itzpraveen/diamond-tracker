@@ -8,35 +8,33 @@ import { getApiBaseUrl } from "@/lib/apiBase";
 const API_BASE_URL = getApiBaseUrl();
 
 export function useApi() {
-  const { accessToken, refresh, logout } = useAuth();
+  const { isAuthenticated, refresh, logout } = useAuth();
 
   const request = useCallback(
     async <T>(path: string, options: RequestInit = {}) => {
-      const doFetch = async (token?: string) => {
+      const doFetch = async () => {
         const headers = new Headers(options.headers || {});
         const isFormData = options.body instanceof FormData;
         if (!isFormData && !headers.has("Content-Type")) {
           headers.set("Content-Type", "application/json");
         }
-        if (token) {
-          headers.set("Authorization", `Bearer ${token}`);
-        }
         const response = await fetch(`${API_BASE_URL}${path}`, {
           ...options,
+          credentials: "include",
           headers
         });
         return response;
       };
 
-      let response = await doFetch(accessToken || undefined);
-      if (response.status === 401) {
+      let response = await doFetch();
+      if (response.status === 401 && isAuthenticated) {
         try {
           await refresh();
         } catch (error) {
           logout({ reason: "expired" });
           throw error instanceof Error ? error : new Error("Session expired");
         }
-        response = await doFetch(localStorage.getItem("diamond_access_token") || undefined);
+        response = await doFetch();
       }
       if (!response.ok) {
         if (response.status === 401) {
@@ -62,36 +60,34 @@ export function useApi() {
       }
       return (await response.json()) as T;
     },
-    [accessToken, refresh, logout]
+    [isAuthenticated, refresh, logout]
   );
 
   const requestBlob = useCallback(
     async (path: string, options: RequestInit = {}) => {
-      const doFetch = async (token?: string) => {
+      const doFetch = async () => {
         const headers = new Headers(options.headers || {});
         const isFormData = options.body instanceof FormData;
         if (!isFormData && !headers.has("Content-Type")) {
           headers.set("Content-Type", "application/json");
         }
-        if (token) {
-          headers.set("Authorization", `Bearer ${token}`);
-        }
         const response = await fetch(`${API_BASE_URL}${path}`, {
           ...options,
+          credentials: "include",
           headers
         });
         return response;
       };
 
-      let response = await doFetch(accessToken || undefined);
-      if (response.status === 401) {
+      let response = await doFetch();
+      if (response.status === 401 && isAuthenticated) {
         try {
           await refresh();
         } catch (error) {
           logout({ reason: "expired" });
           throw error instanceof Error ? error : new Error("Session expired");
         }
-        response = await doFetch(localStorage.getItem("diamond_access_token") || undefined);
+        response = await doFetch();
       }
       if (!response.ok) {
         if (response.status === 401) {
@@ -102,7 +98,7 @@ export function useApi() {
       }
       return response.blob();
     },
-    [accessToken, refresh, logout]
+    [isAuthenticated, refresh, logout]
   );
 
   return { request, requestBlob };

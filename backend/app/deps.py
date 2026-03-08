@@ -1,8 +1,8 @@
 from typing import Callable
 import uuid
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
@@ -12,10 +12,26 @@ from app.models import Role, User
 
 settings = get_settings()
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def extract_access_token(
+    request: Request, credentials: HTTPAuthorizationCredentials | None
+) -> str:
+    if credentials and credentials.scheme.lower() == "bearer" and credentials.credentials:
+        return credentials.credentials
+    cookie_token = request.cookies.get(settings.auth_access_cookie_name)
+    if cookie_token:
+        return cookie_token
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+
+def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    token = extract_access_token(request, credentials)
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         if payload.get("type") != "access":

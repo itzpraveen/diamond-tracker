@@ -423,7 +423,7 @@ function CreateIncidentModal({
 export default function ItemDetailPage() {
   const params = useParams<{ jobId: string }>();
   const jobId = params?.jobId as string;
-  const { accessToken, isLoading } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const { request, requestBlob } = useApi();
   const [overrideStatus, setOverrideStatus] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
@@ -434,7 +434,7 @@ export default function ItemDetailPage() {
   const jobQuery = useQuery({
     queryKey: ["job", jobId],
     queryFn: () => request<any>(`/jobs/${jobId}`),
-    enabled: Boolean(jobId && accessToken && !isLoading)
+    enabled: Boolean(jobId && isAuthenticated && !isLoading)
   });
 
   const overrideMutation = useMutation({

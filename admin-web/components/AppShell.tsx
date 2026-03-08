@@ -22,7 +22,7 @@ const links = [
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { logout, roles, primaryRole, accessToken } = useAuth();
+  const { logout, roles, primaryRole, isAuthenticated } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const roleLabel = roles.length ? roles.join(", ") : primaryRole || "unknown";
@@ -46,12 +46,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [mobileMenuOpen]);
 
   useEffect(() => {
-    if (!accessToken && pathname !== "/") {
+    if (!isAuthenticated && pathname !== "/") {
       router.replace("/");
     }
-  }, [accessToken, pathname, router]);
+  }, [isAuthenticated, pathname, router]);
 
-  if (!accessToken) {
+  if (!isAuthenticated) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center px-4 py-12">
         <div className="w-full max-w-sm rounded-[var(--radius-lg)] border border-ink/10 bg-white/90 p-6 text-center shadow-[var(--shadow)] backdrop-blur">

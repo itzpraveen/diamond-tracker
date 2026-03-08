@@ -2,14 +2,15 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
+from app.deps import get_current_user
 from app.models import RefreshToken, User
-from app.schemas import LoginRequest, RefreshRequest, TokenResponse
+from app.schemas import LoginRequest, RefreshRequest, TokenResponse, UserOut
 from app.utils.security import create_access_token, create_refresh_token, new_jti, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -36,8 +37,53 @@ class LoginLimiter:
 limiter = LoginLimiter()
 
 
+def _request_is_secure(request: Request) -> bool:
+    forwarded_proto = request.headers.get("x-forwarded-proto")
+    if forwarded_proto:
+        return forwarded_proto.split(",")[0].strip().lower() == "https"
+    return request.url.scheme == "https"
+
+
+def _set_auth_cookies(response: Response, request: Request, access_token: str, refresh_token: str) -> None:
+    secure = _request_is_secure(request)
+    response.set_cookie(
+        key=settings.auth_access_cookie_name,
+        value=access_token,
+        httponly=True,
+        secure=secure,
+        samesite=settings.auth_cookie_samesite,
+        max_age=settings.access_token_expire_minutes * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key=settings.auth_refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        secure=secure,
+        samesite=settings.auth_cookie_samesite,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        path="/",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie(settings.auth_access_cookie_name, path="/")
+    response.delete_cookie(settings.auth_refresh_cookie_name, path="/")
+
+
+def _extract_refresh_token(request: Request, payload: RefreshRequest | None) -> str | None:
+    if payload and payload.refresh_token:
+        return payload.refresh_token
+    return request.cookies.get(settings.auth_refresh_cookie_name)
+
+
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
     client_ip = request.client.host if request.client else "unknown"
     limiter.check(payload.username, client_ip)
 
@@ -55,17 +101,25 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
     db.add(RefreshToken(jti=jti, user_id=user.id, expires_at=expires_at))
     db.commit()
+    _set_auth_cookies(response, request, access_token, refresh_token)
 
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def refresh(
+    request: Request,
+    response: Response,
+    payload: RefreshRequest | None = None,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    refresh_token = _extract_refresh_token(request, payload)
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
     try:
-        token_payload = jwt.decode(payload.refresh_token, settings.secret_key, algorithms=[settings.algorithm])
+        token_payload = jwt.decode(refresh_token, settings.secret_key, algorithms=[settings.algorithm])
         if token_payload.get("type") != "refresh":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
-        user_id = token_payload.get("sub")
         jti = token_payload.get("jti")
     except JWTError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
@@ -89,21 +143,34 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
 
     roles = [role.value for role in user.roles]
     access_token = create_access_token(subject=str(user.id), roles=roles)
+    _set_auth_cookies(response, request, access_token, new_refresh)
     return TokenResponse(access_token=access_token, refresh_token=new_refresh)
 
 
-@router.post("/logout")
-def logout(payload: RefreshRequest, db: Session = Depends(get_db)) -> dict:
-    try:
-        token_payload = jwt.decode(payload.refresh_token, settings.secret_key, algorithms=[settings.algorithm])
-        if token_payload.get("type") != "refresh":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
-        jti = token_payload.get("jti")
-    except JWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
+@router.get("/me", response_model=UserOut)
+def me(user: User = Depends(get_current_user)) -> UserOut:
+    return user
 
-    db_token = db.query(RefreshToken).filter(RefreshToken.jti == jti).first()
-    if db_token:
-        db_token.revoked = True
-        db.commit()
+
+@router.post("/logout")
+def logout(
+    request: Request,
+    response: Response,
+    payload: RefreshRequest | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    refresh_token = _extract_refresh_token(request, payload)
+    if refresh_token:
+        try:
+            token_payload = jwt.decode(refresh_token, settings.secret_key, algorithms=[settings.algorithm])
+            if token_payload.get("type") == "refresh":
+                jti = token_payload.get("jti")
+                db_token = db.query(RefreshToken).filter(RefreshToken.jti == jti).first()
+                if db_token:
+                    db_token.revoked = True
+                    db.commit()
+        except JWTError:
+            pass
+
+    _clear_auth_cookies(response)
     return {"ok": True}

@@ -2,14 +2,14 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import { api } from "@/lib/api";
+import { api, type SessionUser } from "@/lib/api";
 
 const ACCESS_KEY = "diamond_access_token";
 const REFRESH_KEY = "diamond_refresh_token";
 
 export type AuthContextValue = {
-  accessToken: string | null;
-  refreshToken: string | null;
+  user: SessionUser | null;
+  isAuthenticated: boolean;
   roles: string[];
   primaryRole: string | null;
   isLoading: boolean;
@@ -22,71 +22,96 @@ export type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-function decodeRoles(token: string | null): string[] {
-  if (!token) return [];
-  try {
-    const payload = token.split(".")[1];
-    let normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    while (normalized.length % 4) {
-      normalized += "=";
-    }
-    const decoded = JSON.parse(atob(normalized));
-    if (Array.isArray(decoded.roles)) {
-      return decoded.roles.filter((role: unknown) => typeof role === "string");
-    }
-    if (decoded.role) {
-      return [decoded.role];
-    }
-    return [];
-  } catch {
-    return [];
-  }
+function getLegacyRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+function clearLegacyTokens() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(ACCESS_KEY);
+  localStorage.removeItem(REFRESH_KEY);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const refreshInFlight = useRef<Promise<void> | null>(null);
 
+  const loadSession = async () => {
+    const session = await api.me();
+    setUser(session);
+  };
+
+  const attemptRefresh = async (allowLegacyFallback = false) => {
+    try {
+      await api.refresh();
+      return;
+    } catch (cookieError) {
+      if (!allowLegacyFallback) {
+        throw cookieError;
+      }
+      const legacyRefreshToken = getLegacyRefreshToken();
+      if (!legacyRefreshToken) {
+        throw cookieError;
+      }
+      await api.refresh(legacyRefreshToken);
+    }
+  };
+
   useEffect(() => {
-    const storedAccess = localStorage.getItem(ACCESS_KEY);
-    const storedRefresh = localStorage.getItem(REFRESH_KEY);
-    setAccessToken(storedAccess);
-    setRefreshToken(storedRefresh);
-    setIsLoading(false);
+    let mounted = true;
+
+    const bootstrap = async () => {
+      try {
+        await loadSession();
+      } catch {
+        try {
+          await attemptRefresh(true);
+          if (!mounted) return;
+          await loadSession();
+        } catch {
+          if (mounted) {
+            setUser(null);
+          }
+        }
+      } finally {
+        clearLegacyTokens();
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const login = async (username: string, password: string) => {
-    const tokens = await api.login(username, password);
-    localStorage.setItem(ACCESS_KEY, tokens.access_token);
-    localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
-    setAccessToken(tokens.access_token);
-    setRefreshToken(tokens.refresh_token);
+    await api.login(username, password);
+    await loadSession();
+    clearLegacyTokens();
     setNotice(null);
   };
 
   const clearSession = () => {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-    setAccessToken(null);
-    setRefreshToken(null);
+    clearLegacyTokens();
+    setUser(null);
   };
 
   const refresh = async () => {
-    const storedRefresh = refreshToken || localStorage.getItem(REFRESH_KEY);
-    if (!storedRefresh) return;
     if (refreshInFlight.current) {
       return refreshInFlight.current;
     }
     const run = (async () => {
       try {
-        const tokens = await api.refresh(storedRefresh);
-        localStorage.setItem(ACCESS_KEY, tokens.access_token);
-        localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
-        setAccessToken(tokens.access_token);
-        setRefreshToken(tokens.refresh_token);
+        await attemptRefresh(true);
+        await loadSession();
+        clearLegacyTokens();
       } catch (error) {
         clearSession();
         throw error;
@@ -100,23 +125,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = (options?: { reason?: "expired" | "manual" }) => {
     refreshInFlight.current = null;
+    const legacyRefreshToken = getLegacyRefreshToken();
     if (options?.reason === "expired") {
       setNotice("Session expired. Please sign in again.");
     } else {
       setNotice(null);
     }
     clearSession();
+    void api.logout(legacyRefreshToken ?? undefined).catch(() => undefined);
   };
 
   const dismissNotice = () => setNotice(null);
 
   const value = useMemo(() => {
-    const decodedRoles = decodeRoles(accessToken);
+    const roles = user?.roles ?? [];
     return {
-      accessToken,
-      refreshToken,
-      roles: decodedRoles,
-      primaryRole: decodedRoles[0] ?? null,
+      user,
+      isAuthenticated: Boolean(user),
+      roles,
+      primaryRole: roles[0] ?? null,
       isLoading,
       notice,
       login,
@@ -124,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       dismissNotice,
       refresh
     };
-  }, [accessToken, refreshToken, isLoading, notice]);
+  }, [user, isLoading, notice]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

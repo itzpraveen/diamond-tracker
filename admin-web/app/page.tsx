@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 
 export default function HomePage() {
-  const { accessToken, login, isLoading, notice, dismissNotice } = useAuth();
+  const { isAuthenticated, login, isLoading, notice, dismissNotice } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export default function HomePage() {
     );
   }
 
-  if (!accessToken) {
+  if (!isAuthenticated) {
     return (
       <div className="flex min-h-screen min-h-[100dvh] items-center justify-center px-4 py-8">
         <div className="w-full max-w-5xl">
