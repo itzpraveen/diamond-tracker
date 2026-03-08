@@ -157,6 +157,7 @@ def repair_targets(
     now = datetime.now(timezone.utc)
     window_end = now + timedelta(days=window_days)
     base_query = db.query(ItemJob).filter(
+        ItemJob.is_archived.is_(False),
         ItemJob.target_return_date.isnot(None),
         ItemJob.current_status != Status.CANCELLED,
     )
@@ -311,6 +312,7 @@ def factory_summary(
             func.sum(case((ItemJob.current_status.in_(dispatched_statuses), 1), else_=0)).label("total_dispatched"),
         )
         .join(ItemJob, ItemJob.factory_id == Factory.id)
+        .filter(ItemJob.is_archived.is_(False))
         .group_by(Factory.id, Factory.name)
         .all()
     )

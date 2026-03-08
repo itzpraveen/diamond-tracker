@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Table, TBody, TD, TH, THead, TR, MobileTableCard, MobileTableRow } from "@/components/ui/table";
+import { RoleGate } from "@/lib/auth";
 import { statusLabel } from "@/lib/status";
 import { useApi } from "@/lib/useApi";
 
@@ -25,6 +26,7 @@ const statuses = [
   "ON_HOLD",
   "CANCELLED"
 ];
+const terminalStatuses = new Set(["DELIVERED_TO_CUSTOMER", "CANCELLED"]);
 const labelPositions = [1, 2, 3, 4, 5, 6];
 const DEFAULT_PAGE_SIZE = 20;
 
@@ -443,6 +445,7 @@ export default function ItemsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [sortKey, setSortKey] = useState("last_scan_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [pageIndex, setPageIndex] = useState(0);
@@ -456,6 +459,7 @@ export default function ItemsPage() {
     if (fromDate) params.append("from_date", new Date(fromDate).toISOString());
     if (toDate) params.append("to_date", new Date(toDate).toISOString());
     if (factoryFilter) params.append("factory_id", factoryFilter);
+    if (showArchived) params.append("include_archived", "true");
     params.append("sort_by", sortKey);
     params.append("sort_dir", sortOrder);
     params.append("limit", String(pageSize));
@@ -464,7 +468,7 @@ export default function ItemsPage() {
   };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, sortKey, sortOrder, pageIndex, pageSize],
+    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, showArchived, sortKey, sortOrder, pageIndex, pageSize],
     queryFn: () => {
       const queryString = buildQueryParams();
       return request<any[]>(`/jobs?${queryString}`);
@@ -485,7 +489,7 @@ export default function ItemsPage() {
 
   useEffect(() => {
     setPageIndex(0);
-  }, [jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, sortKey, sortOrder, pageSize]);
+  }, [jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, showArchived, sortKey, sortOrder, pageSize]);
 
   const clearFilters = () => {
     setJobIdFilter("");
@@ -502,15 +506,40 @@ export default function ItemsPage() {
 
   const allSelected = pageJobs.length > 0 && pageJobs.every((job) => selectedJobs.includes(job.job_id));
   const selectedCount = selectedJobs.length;
-  const selectedJobIds = useMemo(
-    () => jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id),
+  const selectedJobRecords = useMemo(
+    () => jobs.filter((job) => selectedJobs.includes(job.job_id)),
     [jobs, selectedJobs]
   );
+  const selectedJobIds = useMemo(() => selectedJobRecords.map((job) => job.job_id), [selectedJobRecords]);
+  const allSelectedArchived = selectedJobRecords.length > 0 && selectedJobRecords.every((job) => job.is_archived);
+  const allSelectedActive = selectedJobRecords.length > 0 && selectedJobRecords.every((job) => !job.is_archived);
+  const canBulkCancel =
+    allSelectedActive && selectedJobRecords.every((job) => !terminalStatuses.has(job.current_status));
+  const canBulkArchive =
+    allSelectedActive && selectedJobRecords.every((job) => terminalStatuses.has(job.current_status));
+  const canBulkRestore = allSelectedArchived;
+  const canGenerateLabels = selectedJobRecords.length > 0 && selectedJobRecords.every((job) => !job.is_archived);
 
-  const deleteMutation = useMutation({
+  const cancelMutation = useMutation({
+    mutationFn: async ({ jobIds, reason }: { jobIds: string[]; reason: string }) =>
+      request<{ updated_job_ids: string[]; missing_job_ids: string[] }>("/jobs/bulk/cancel", {
+        method: "POST",
+        body: JSON.stringify({ job_ids: jobIds, reason })
+      }),
+    onSuccess: () => {
+      setSelectedJobs([]);
+      setActionError("");
+      jobsQuery.refetch();
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Unable to cancel selected jobs");
+    }
+  });
+
+  const archiveMutation = useMutation({
     mutationFn: async (jobIds: string[]) =>
-      request<{ deleted_job_ids: string[]; missing_job_ids: string[] }>("/jobs/bulk", {
-        method: "DELETE",
+      request<{ updated_job_ids: string[]; missing_job_ids: string[] }>("/jobs/bulk/archive", {
+        method: "POST",
         body: JSON.stringify({ job_ids: jobIds })
       }),
     onSuccess: () => {
@@ -519,7 +548,23 @@ export default function ItemsPage() {
       jobsQuery.refetch();
     },
     onError: (error) => {
-      setActionError(error instanceof Error ? error.message : "Unable to delete selected jobs");
+      setActionError(error instanceof Error ? error.message : "Unable to archive selected jobs");
+    }
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (jobIds: string[]) =>
+      request<{ updated_job_ids: string[]; missing_job_ids: string[] }>("/jobs/bulk/restore", {
+        method: "POST",
+        body: JSON.stringify({ job_ids: jobIds })
+      }),
+    onSuccess: () => {
+      setSelectedJobs([]);
+      setActionError("");
+      jobsQuery.refetch();
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Unable to restore selected jobs");
     }
   });
 
@@ -638,19 +683,49 @@ export default function ItemsPage() {
     }
   };
 
-  const handleDeleteSelected = async () => {
-    if (!selectedJobIds.length || deleteMutation.isPending) return;
-
-    const preview = selectedJobIds.slice(0, 5).join(", ");
-    const remainingCount = Math.max(selectedJobIds.length - 5, 0);
+  const handleCancelSelected = async () => {
+    if (!selectedJobIds.length || cancelMutation.isPending || !canBulkCancel) return;
     const confirmed = window.confirm(
-      `Delete ${selectedJobIds.length} selected job${selectedJobIds.length === 1 ? "" : "s"} permanently?\n\nThis removes the job records and related history.${preview ? `\n\n${preview}${remainingCount ? ` and ${remainingCount} more` : ""}` : ""}`
+      `Cancel ${selectedJobIds.length} selected job${selectedJobIds.length === 1 ? "" : "s"}?\n\nCancelled items remain in history and can be archived later.`
     );
     if (!confirmed) return;
-
+    const reason = window.prompt("Cancellation reason");
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setActionError("Cancellation reason is required");
+      return;
+    }
     setActionError("");
     try {
-      await deleteMutation.mutateAsync(selectedJobIds);
+      await cancelMutation.mutateAsync({ jobIds: selectedJobIds, reason: reason.trim() });
+    } catch {
+      // Error state is handled by the mutation callback.
+    }
+  };
+
+  const handleArchiveSelected = async () => {
+    if (!selectedJobIds.length || archiveMutation.isPending || !canBulkArchive) return;
+    const confirmed = window.confirm(
+      `Archive ${selectedJobIds.length} selected item${selectedJobIds.length === 1 ? "" : "s"}?\n\nArchived items are hidden from the default list and can be restored later.`
+    );
+    if (!confirmed) return;
+    setActionError("");
+    try {
+      await archiveMutation.mutateAsync(selectedJobIds);
+    } catch {
+      // Error state is handled by the mutation callback.
+    }
+  };
+
+  const handleRestoreSelected = async () => {
+    if (!selectedJobIds.length || restoreMutation.isPending || !canBulkRestore) return;
+    const confirmed = window.confirm(
+      `Restore ${selectedJobIds.length} archived item${selectedJobIds.length === 1 ? "" : "s"} to the active list?`
+    );
+    if (!confirmed) return;
+    setActionError("");
+    try {
+      await restoreMutation.mutateAsync(selectedJobIds);
     } catch {
       // Error state is handled by the mutation callback.
     }
@@ -670,6 +745,15 @@ export default function ItemsPage() {
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
               {showFilters ? "Hide Filters" : "Filters"}
             </Button>
+            <RoleGate roles={["Admin"]}>
+              <Button
+                variant={showArchived ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setShowArchived((current) => !current)}
+              >
+                {showArchived ? "Hide Archived" : "Show Archived"}
+              </Button>
+            </RoleGate>
             <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-ink/10 bg-white/80 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,20,0.06)]">
               <div className="flex items-center gap-3 pr-3 sm:border-r sm:border-ink/10">
                 <div className="leading-tight">
@@ -705,7 +789,7 @@ export default function ItemsPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadLabels}
-                  disabled={!selectedCount}
+                  disabled={!canGenerateLabels}
                 >
                   {selectedCount ? `Download ${selectedCount} (A4)` : "Download A4"}
                 </Button>
@@ -713,7 +797,7 @@ export default function ItemsPage() {
                   variant="outline"
                   size="sm"
                   onClick={handlePrintLabels}
-                  disabled={!selectedCount}
+                  disabled={!canGenerateLabels}
                 >
                   {selectedCount ? `Print ${selectedCount} (A4)` : "Print A4"}
                 </Button>
@@ -725,18 +809,47 @@ export default function ItemsPage() {
                 >
                   {selectedCount ? `Excel ${selectedCount}` : "Excel"}
                 </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={handleDeleteSelected}
-                  disabled={!selectedCount || deleteMutation.isPending}
-                >
-                  {deleteMutation.isPending
-                    ? "Deleting..."
-                    : selectedCount
-                      ? `Delete ${selectedCount}`
-                      : "Delete"}
-                </Button>
+                <RoleGate roles={["Admin"]}>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleCancelSelected}
+                    disabled={!selectedCount || !canBulkCancel || cancelMutation.isPending}
+                  >
+                    {cancelMutation.isPending
+                      ? "Cancelling..."
+                      : selectedCount
+                        ? `Cancel ${selectedCount}`
+                        : "Cancel"}
+                  </Button>
+                  {allSelectedArchived ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRestoreSelected}
+                      disabled={!selectedCount || !canBulkRestore || restoreMutation.isPending}
+                    >
+                      {restoreMutation.isPending
+                        ? "Restoring..."
+                        : selectedCount
+                          ? `Restore ${selectedCount}`
+                          : "Restore"}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleArchiveSelected}
+                      disabled={!selectedCount || !canBulkArchive || archiveMutation.isPending}
+                    >
+                      {archiveMutation.isPending
+                        ? "Archiving..."
+                        : selectedCount
+                          ? `Archive ${selectedCount}`
+                          : "Archive"}
+                    </Button>
+                  )}
+                </RoleGate>
               </div>
             </div>
             <Button size="sm" onClick={() => setShowCreateModal(true)}>
@@ -744,6 +857,11 @@ export default function ItemsPage() {
             </Button>
           </div>
         </div>
+        <RoleGate roles={["Admin"]}>
+          <p className="text-xs text-slate">
+            Cancel active items first. Archive only cancelled or delivered items. Archived items stay hidden until restored.
+          </p>
+        </RoleGate>
         {actionError && <p className="text-sm text-red-600">{actionError}</p>}
 
         {/* Filters Section */}
@@ -921,7 +1039,12 @@ export default function ItemsPage() {
                         aria-label={`Select job ${job.job_id}`}
                       />
                     </TD>
-                    <TD className="font-medium">{job.job_id}</TD>
+                    <TD>
+                      <div>
+                        <div className="font-medium">{job.job_id}</div>
+                        {job.is_archived && <div className="text-xs text-slate">Archived</div>}
+                      </div>
+                    </TD>
                     <TD>
                       <div>
                         <div className="font-medium">{job.customer_name || "-"}</div>
@@ -966,6 +1089,7 @@ export default function ItemsPage() {
                   <div>
                     <p className="font-semibold">{job.job_id}</p>
                     <p className="text-sm text-slate">{job.customer_name || "No customer"}</p>
+                    {job.is_archived && <p className="mt-1 text-xs text-slate">Archived</p>}
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge status={job.current_status} size="sm" />

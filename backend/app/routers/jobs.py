@@ -27,6 +27,8 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    JobBulkActionRequest,
+    JobBulkActionResponse,
     JobBulkDeleteRequest,
     JobBulkDeleteResponse,
     JobCreate,
@@ -108,17 +110,160 @@ def _resolve_factory_name(db: Session, job: ItemJob) -> Optional[str]:
     return None
 
 
-def _delete_jobs(db: Session, job_ids: list[str]) -> tuple[list[str], list[str]]:
-    unique_job_ids = list(dict.fromkeys(job_id.strip() for job_id in job_ids if job_id and job_id.strip()))
+def _ensure_job_not_archived(job: ItemJob) -> None:
+    if job.is_archived:
+        raise HTTPException(status_code=400, detail="Item is archived")
+
+
+def _normalize_job_ids(job_ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(job_id.strip() for job_id in job_ids if job_id and job_id.strip()))
+
+
+def _preview_job_ids(job_ids: list[str], *, limit: int = 5) -> str:
+    if not job_ids:
+        return ""
+    preview = ", ".join(job_ids[:limit])
+    remaining = max(len(job_ids) - limit, 0)
+    if remaining:
+        preview = f"{preview} and {remaining} more"
+    return preview
+
+
+def _get_jobs_for_codes(db: Session, job_ids: list[str]) -> tuple[list[str], list[ItemJob], list[str]]:
+    unique_job_ids = _normalize_job_ids(job_ids)
     if not unique_job_ids:
-        return [], []
+        return [], [], []
 
     jobs = db.query(ItemJob).filter(ItemJob.job_id.in_(unique_job_ids)).all()
     jobs_by_code = {job.job_id: job for job in jobs}
     found_jobs = [jobs_by_code[job_id] for job_id in unique_job_ids if job_id in jobs_by_code]
     missing_job_ids = [job_id for job_id in unique_job_ids if job_id not in jobs_by_code]
+    return unique_job_ids, found_jobs, missing_job_ids
+
+
+def _sync_batch_counts(db: Session, batch_ids: list[uuid.UUID]) -> None:
+    if not batch_ids:
+        return
+    batches = db.query(Batch).filter(Batch.id.in_(batch_ids)).all()
+    remaining_counts = {
+        batch_id: count
+        for batch_id, count in db.query(BatchItem.batch_id, func.count(BatchItem.id))
+        .filter(BatchItem.batch_id.in_(batch_ids))
+        .group_by(BatchItem.batch_id)
+        .all()
+    }
+    for batch in batches:
+        batch.item_count = int(remaining_counts.get(batch.id, 0))
+
+
+def _detach_jobs_from_created_batches(db: Session, jobs: list[ItemJob]) -> set[uuid.UUID]:
+    if not jobs:
+        return set()
+
+    job_db_ids = [job.id for job in jobs]
+    batch_items = (
+        db.query(BatchItem)
+        .join(Batch, BatchItem.batch_id == Batch.id)
+        .filter(BatchItem.job_id.in_(job_db_ids), Batch.status == BatchStatus.CREATED)
+        .all()
+    )
+    if not batch_items:
+        return set()
+
+    affected_batch_ids = list(dict.fromkeys(batch_item.batch_id for batch_item in batch_items))
+    detached_job_ids = {batch_item.job_id for batch_item in batch_items}
+    for batch_item in batch_items:
+        db.delete(batch_item)
+    db.flush()
+    _sync_batch_counts(db, affected_batch_ids)
+    return detached_job_ids
+
+
+def _cancel_jobs(db: Session, jobs: list[ItemJob], user: User, *, reason: str) -> list[str]:
+    archived = [job.job_id for job in jobs if job.is_archived]
+    if archived:
+        raise HTTPException(status_code=400, detail=f"Restore archived items before cancelling: {_preview_job_ids(archived)}")
+
+    terminal = [job.job_id for job in jobs if is_terminal(job.current_status)]
+    if terminal:
+        raise HTTPException(status_code=400, detail=f"Only active items can be cancelled: {_preview_job_ids(terminal)}")
+
+    detached_job_ids = _detach_jobs_from_created_batches(db, jobs)
+    now = datetime.now(timezone.utc)
+
+    for job in jobs:
+        if job.id in detached_job_ids:
+            job.factory_id = None
+        previous_status = job.current_status
+        job.current_status = Status.CANCELLED
+        job.current_holder_role = STATUS_HOLDER_ROLE[Status.CANCELLED]
+        job.current_holder_user_id = user.id
+        job.last_scan_at = now
+        db.add(
+            StatusEvent(
+                job_id=job.id,
+                from_status=previous_status,
+                to_status=Status.CANCELLED,
+                scanned_by_user_id=user.id,
+                scanned_by_role=Role.ADMIN,
+                timestamp=now,
+                remarks="Bulk cancel",
+                override_reason=reason,
+            )
+        )
+
+    return [job.job_id for job in jobs]
+
+
+def _archive_jobs(db: Session, jobs: list[ItemJob], user: User, *, reason: str | None = None) -> list[str]:
+    archived = [job.job_id for job in jobs if job.is_archived]
+    if archived:
+        raise HTTPException(status_code=400, detail=f"Items are already archived: {_preview_job_ids(archived)}")
+
+    non_terminal = [job.job_id for job in jobs if not is_terminal(job.current_status)]
+    if non_terminal:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only cancelled or delivered items can be archived: {_preview_job_ids(non_terminal)}",
+        )
+
+    now = datetime.now(timezone.utc)
+    clean_reason = (reason or "").strip() or None
+    for job in jobs:
+        job.is_archived = True
+        job.archived_at = now
+        job.archived_by = user.id
+        job.archive_reason = clean_reason
+
+    return [job.job_id for job in jobs]
+
+
+def _restore_jobs(db: Session, jobs: list[ItemJob]) -> list[str]:
+    active = [job.job_id for job in jobs if not job.is_archived]
+    if active:
+        raise HTTPException(status_code=400, detail=f"Only archived items can be restored: {_preview_job_ids(active)}")
+
+    for job in jobs:
+        job.is_archived = False
+        job.archived_at = None
+        job.archived_by = None
+        job.archive_reason = None
+
+    return [job.job_id for job in jobs]
+
+
+def _delete_jobs(db: Session, job_ids: list[str]) -> tuple[list[str], list[str]]:
+    unique_job_ids, found_jobs, missing_job_ids = _get_jobs_for_codes(db, job_ids)
+    if not unique_job_ids:
+        return [], []
     if not found_jobs:
         return [], missing_job_ids
+    not_archived = [job.job_id for job in found_jobs if not job.is_archived]
+    if not_archived:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Hard delete is restricted to archived cleanup only: {_preview_job_ids(not_archived)}",
+        )
 
     job_db_ids = [job.id for job in found_jobs]
     affected_batch_ids = [
@@ -136,18 +281,7 @@ def _delete_jobs(db: Session, job_ids: list[str]) -> tuple[list[str], list[str]]
     db.query(ItemJob).filter(ItemJob.id.in_(job_db_ids)).delete(synchronize_session=False)
     db.flush()
 
-    if affected_batch_ids:
-        batches = db.query(Batch).filter(Batch.id.in_(affected_batch_ids)).all()
-        remaining_counts = {
-            batch_id: count
-            for batch_id, count in db.query(BatchItem.batch_id, func.count(BatchItem.id))
-            .filter(BatchItem.batch_id.in_(affected_batch_ids))
-            .group_by(BatchItem.batch_id)
-            .all()
-        }
-        for batch in batches:
-            batch.item_count = int(remaining_counts.get(batch.id, 0))
-
+    _sync_batch_counts(db, affected_batch_ids)
     return [job.job_id for job in found_jobs], missing_job_ids
 
 
@@ -280,12 +414,15 @@ def list_jobs(
     job_id: Optional[str] = Query(default=None),
     sort_by: Optional[str] = Query(default="created_at"),
     sort_dir: Optional[str] = Query(default="desc"),
+    include_archived: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY)),
 ):
     query = db.query(ItemJob).options(selectinload(ItemJob.factory))
+    if not include_archived or Role.ADMIN not in user.roles:
+        query = query.filter(ItemJob.is_archived.is_(False))
     if status:
         query = query.filter(ItemJob.current_status == status)
     if from_date:
@@ -331,6 +468,7 @@ def job_metrics(
     statuses: Optional[list[Status]] = Query(default=None),
     from_date: Optional[datetime] = Query(default=None),
     to_date: Optional[datetime] = Query(default=None),
+    include_archived: bool = Query(default=False),
     db: Session = Depends(get_db),
     user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY)),
 ):
@@ -338,6 +476,8 @@ def job_metrics(
         ItemJob.current_status.label("status"),
         func.count(ItemJob.id).label("count"),
     )
+    if not include_archived or Role.ADMIN not in user.roles:
+        query = query.filter(ItemJob.is_archived.is_(False))
     if statuses:
         query = query.filter(ItemJob.current_status.in_(statuses))
     if from_date:
@@ -346,6 +486,86 @@ def job_metrics(
         query = query.filter(ItemJob.created_at <= to_date)
     rows = query.group_by(ItemJob.current_status).all()
     return [JobMetric(status=row.status, count=row.count) for row in rows]
+
+
+@router.post("/bulk/cancel", response_model=JobBulkActionResponse)
+def bulk_cancel_jobs(
+    payload: JobBulkActionRequest,
+    user=Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+):
+    if not any(job_id.strip() for job_id in payload.job_ids):
+        raise HTTPException(status_code=400, detail="Job ids are required")
+    if not (payload.reason or "").strip():
+        raise HTTPException(status_code=400, detail="Cancellation reason is required")
+
+    _unique_job_ids, found_jobs, missing_job_ids = _get_jobs_for_codes(db, payload.job_ids)
+    if not found_jobs:
+        raise HTTPException(status_code=404, detail="Jobs not found")
+
+    try:
+        updated_job_ids = _cancel_jobs(db, found_jobs, user, reason=payload.reason or "")
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    return JobBulkActionResponse(updated_job_ids=updated_job_ids, missing_job_ids=missing_job_ids)
+
+
+@router.post("/bulk/archive", response_model=JobBulkActionResponse)
+def bulk_archive_jobs(
+    payload: JobBulkActionRequest,
+    user=Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+):
+    if not any(job_id.strip() for job_id in payload.job_ids):
+        raise HTTPException(status_code=400, detail="Job ids are required")
+
+    _unique_job_ids, found_jobs, missing_job_ids = _get_jobs_for_codes(db, payload.job_ids)
+    if not found_jobs:
+        raise HTTPException(status_code=404, detail="Jobs not found")
+
+    try:
+        updated_job_ids = _archive_jobs(db, found_jobs, user, reason=payload.reason)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    return JobBulkActionResponse(updated_job_ids=updated_job_ids, missing_job_ids=missing_job_ids)
+
+
+@router.post("/bulk/restore", response_model=JobBulkActionResponse)
+def bulk_restore_jobs(
+    payload: JobBulkActionRequest,
+    user=Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+):
+    if not any(job_id.strip() for job_id in payload.job_ids):
+        raise HTTPException(status_code=400, detail="Job ids are required")
+
+    _unique_job_ids, found_jobs, missing_job_ids = _get_jobs_for_codes(db, payload.job_ids)
+    if not found_jobs:
+        raise HTTPException(status_code=404, detail="Jobs not found")
+
+    try:
+        updated_job_ids = _restore_jobs(db, found_jobs)
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    return JobBulkActionResponse(updated_job_ids=updated_job_ids, missing_job_ids=missing_job_ids)
 
 
 @router.delete("/bulk", response_model=JobBulkDeleteResponse)
@@ -400,6 +620,7 @@ def get_job(job_id: str, db: Session = Depends(get_db), user=Depends(require_rol
 @router.patch("/{job_id}", response_model=JobOut)
 def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.ADMIN)), db: Session = Depends(get_db)):
     job = _get_job_by_code(db, job_id)
+    _ensure_job_not_archived(job)
     errors = {}
     if not payload.reason.strip():
         errors["reason"] = "Edit reason required"
@@ -471,6 +692,7 @@ def update_job(job_id: str, payload: JobUpdate, user=Depends(require_roles(Role.
 @router.post("/{job_id}/scan", response_model=StatusEventOut)
 def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY, Role.PURCHASE))):
     job = _get_job_by_code(db, job_id)
+    _ensure_job_not_archived(job)
     current_status = job.current_status
     target_status = payload.to_status
     batch = None
@@ -572,6 +794,7 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
 @router.get("/{job_id}/label.pdf")
 def get_label(job_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.PURCHASE, Role.PACKING, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.DELIVERY))):
     job = _get_job_by_code(db, job_id)
+    _ensure_job_not_archived(job)
     branch = db.query(Branch).filter(Branch.id == job.branch_id).first()
     factory_name = _resolve_factory_name(db, job)
     pdf_bytes = generate_label_pdf(job, branch.name if branch else "Main Branch", factory_name=factory_name)
@@ -597,6 +820,9 @@ def get_label_sheet(payload: LabelSheetRequest, db: Session = Depends(get_db), u
     missing = [job_id for job_id in unique_job_ids if job_id not in job_map]
     if missing:
         raise HTTPException(status_code=404, detail=f"Jobs not found: {', '.join(missing)}")
+    archived = [job.job_id for job in jobs if job.is_archived]
+    if archived:
+        raise HTTPException(status_code=400, detail=f"Archived items cannot generate labels: {_preview_job_ids(archived)}")
 
     branch_ids = {job.branch_id for job in jobs}
     branches = db.query(Branch).filter(Branch.id.in_(branch_ids)).all()

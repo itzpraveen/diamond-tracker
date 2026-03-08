@@ -105,6 +105,16 @@ class JobUpdate(BaseModel):
     reason: str
 
 
+class JobBulkActionRequest(BaseModel):
+    job_ids: List[str] = Field(default_factory=list)
+    reason: Optional[str] = None
+
+
+class JobBulkActionResponse(BaseModel):
+    updated_job_ids: List[str] = Field(default_factory=list)
+    missing_job_ids: List[str] = Field(default_factory=list)
+
+
 class JobOut(BaseModel):
     job_id: str
     branch_id: UUID
@@ -131,6 +141,10 @@ class JobOut(BaseModel):
     current_holder_user_id: Optional[UUID] = None
     last_scan_at: Optional[datetime] = None
     notes: Optional[str] = None
+    is_archived: bool
+    archived_at: Optional[datetime] = None
+    archived_by: Optional[UUID] = None
+    archive_reason: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

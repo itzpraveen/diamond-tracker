@@ -25,6 +25,8 @@ def create_incident(payload: IncidentCreate, user=Depends(require_roles(Role.ADM
     job_uuid = None
     if payload.job_id:
         job = _get_job(db, payload.job_id)
+        if job.is_archived:
+            raise HTTPException(status_code=400, detail="Archived items cannot create incidents")
         job_uuid = job.id
 
     incident = Incident(

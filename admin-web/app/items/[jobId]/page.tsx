@@ -455,6 +455,7 @@ export default function ItemDetailPage() {
   });
 
   const job = jobQuery.data;
+  const isArchived = Boolean(job?.is_archived);
   const photos = useMemo(() => {
     if (!job?.photos) return [];
     return job.photos
@@ -515,6 +516,15 @@ export default function ItemDetailPage() {
             </div>
             <Badge>{statusLabel(job?.current_status)}</Badge>
           </div>
+
+          {isArchived && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm font-medium text-amber-900">Archived item</p>
+              <p className="mt-1 text-sm text-amber-800">
+                This item is hidden from the default list and is read-only until restored from the Items page.
+              </p>
+            </div>
+          )}
 
           {/* Job Details */}
           <div className="grid gap-4 rounded-3xl border border-ink/10 bg-white/80 p-4 md:grid-cols-2">
@@ -602,21 +612,25 @@ export default function ItemDetailPage() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            <button
-              className="inline-flex items-center justify-center rounded-xl border border-ink/10 bg-white/80 px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/30 hover:bg-white"
-              type="button"
-              onClick={handleDownloadLabel}
-            >
-              Download Label
-            </button>
-            <Button variant="outline" onClick={() => setShowIncidentModal(true)}>
-              Create Incident
-            </Button>
-            <RoleGate roles={["Admin"]}>
-              <Button variant="outline" onClick={() => setShowEditModal(true)}>
-                Edit Job
-              </Button>
-            </RoleGate>
+            {!isArchived && (
+              <>
+                <button
+                  className="inline-flex items-center justify-center rounded-xl border border-ink/10 bg-white/80 px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/30 hover:bg-white"
+                  type="button"
+                  onClick={handleDownloadLabel}
+                >
+                  Download Label
+                </button>
+                <Button variant="outline" onClick={() => setShowIncidentModal(true)}>
+                  Create Incident
+                </Button>
+                <RoleGate roles={["Admin"]}>
+                  <Button variant="outline" onClick={() => setShowEditModal(true)}>
+                    Edit Job
+                  </Button>
+                </RoleGate>
+              </>
+            )}
           </div>
           {downloadError && <p className="text-sm text-red-600">{downloadError}</p>}
         </Card>
@@ -634,32 +648,34 @@ export default function ItemDetailPage() {
             Pending: {pendingDays === null ? "-" : `${pendingDays} day${pendingDays === 1 ? "" : "s"}`}
           </p>
           <RoleGate roles={["Admin"]}>
-            <div className="mt-4 space-y-2 border-t border-ink/10 pt-4">
-              <p className="text-xs uppercase tracking-[0.3em] text-slate">Admin Override</p>
-              <select
-                className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
-                value={overrideStatus}
-                onChange={(e) => setOverrideStatus(e.target.value)}
-              >
-                <option value="">Select status</option>
-                {statuses.map((s) => (
-                  <option key={s} value={s}>
-                    {statusLabel(s)}
-                  </option>
-                ))}
-              </select>
-              <Input
-                placeholder="Override reason"
-                value={overrideReason}
-                onChange={(event) => setOverrideReason(event.target.value)}
-              />
-              <Button
-                onClick={() => overrideMutation.mutate()}
-                disabled={!overrideStatus || !overrideReason || overrideMutation.isPending}
-              >
-                {overrideMutation.isPending ? "Applying..." : "Apply Override"}
-              </Button>
-            </div>
+            {!isArchived && (
+              <div className="mt-4 space-y-2 border-t border-ink/10 pt-4">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate">Admin Override</p>
+                <select
+                  className="w-full rounded-2xl border border-ink/10 bg-white/90 px-4 py-2 text-sm outline-none transition focus:border-ink/30 focus:ring-2 focus:ring-gold/30"
+                  value={overrideStatus}
+                  onChange={(e) => setOverrideStatus(e.target.value)}
+                >
+                  <option value="">Select status</option>
+                  {statuses.map((s) => (
+                    <option key={s} value={s}>
+                      {statusLabel(s)}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  placeholder="Override reason"
+                  value={overrideReason}
+                  onChange={(event) => setOverrideReason(event.target.value)}
+                />
+                <Button
+                  onClick={() => overrideMutation.mutate()}
+                  disabled={!overrideStatus || !overrideReason || overrideMutation.isPending}
+                >
+                  {overrideMutation.isPending ? "Applying..." : "Apply Override"}
+                </Button>
+              </div>
+            )}
           </RoleGate>
         </Card>
       </div>
