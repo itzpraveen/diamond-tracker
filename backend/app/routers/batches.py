@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, selectinload
@@ -12,6 +12,7 @@ from app.deps import require_roles
 from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, Incident, ItemJob, Role, Status, StatusEvent
 from app.schemas import (
     BatchAddItem,
+    BatchArchiveRequest,
     BatchCreate,
     BatchDeleteResponse,
     BatchDetail,
@@ -92,6 +93,11 @@ def _get_factory_by_uuid(db: Session, factory_id: uuid.UUID) -> Factory:
     if not factory.is_active:
         raise HTTPException(status_code=400, detail="Factory is inactive")
     return factory
+
+
+def _ensure_batch_not_archived(batch: Batch) -> None:
+    if batch.is_archived:
+        raise HTTPException(status_code=400, detail="Voucher is archived")
 
 
 def _sync_batch_item_count(db: Session, batch: Batch) -> int:
@@ -257,7 +263,7 @@ def _get_empty_batch_cleanup_candidates(db: Session) -> tuple[list[tuple[Batch, 
     empty_batches = (
         db.query(Batch)
         .options(selectinload(Batch.factory))
-        .filter(~Batch.items.any())
+        .filter(Batch.is_archived.is_(False), ~Batch.items.any())
         .order_by(Batch.created_at.desc())
         .all()
     )
@@ -330,14 +336,15 @@ def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH,
 
 
 @router.get("", response_model=list[BatchOut])
-def list_batches(db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK))):
-    return (
-        db.query(Batch)
-        .options(selectinload(Batch.factory))
-        .order_by(Batch.created_at.desc())
-        .limit(200)
-        .all()
-    )
+def list_batches(
+    include_archived: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK)),
+):
+    query = db.query(Batch).options(selectinload(Batch.factory))
+    if not include_archived or Role.ADMIN not in user.roles:
+        query = query.filter(Batch.is_archived.is_(False))
+    return query.order_by(Batch.created_at.desc()).limit(200).all()
 
 
 @router.delete("/empty")
@@ -372,6 +379,7 @@ def delete_empty_batches(
 @router.post("/{batch_id}/items", response_model=BatchOut)
 def add_item(batch_id: str, payload: BatchAddItem, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
     batch = _get_batch(db, batch_id)
+    _ensure_batch_not_archived(batch)
     job = _get_job_by_code(db, payload.job_id)
     if job.current_status != Status.PACKED_READY:
         raise HTTPException(status_code=400, detail="Only PACKED_READY items can be added")
@@ -390,6 +398,7 @@ def add_item(batch_id: str, payload: BatchAddItem, user=Depends(require_roles(Ro
 @router.post("/{batch_id}/dispatch", response_model=BatchOut)
 def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
     batch = _get_batch(db, batch_id)
+    _ensure_batch_not_archived(batch)
     items = (
         db.query(BatchItem)
         .options(selectinload(BatchItem.job))
@@ -453,6 +462,7 @@ def remove_item(
     user=Depends(require_roles(Role.ADMIN, Role.DISPATCH)),
 ):
     batch = _get_batch(db, batch_id)
+    _ensure_batch_not_archived(batch)
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Voucher is closed")
 
@@ -480,6 +490,7 @@ def clear_batch_items(
     user=Depends(require_roles(Role.ADMIN, Role.DISPATCH)),
 ):
     batch = _get_batch(db, batch_id)
+    _ensure_batch_not_archived(batch)
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Voucher is closed")
 
@@ -498,6 +509,43 @@ def clear_batch_items(
     return batch
 
 
+@router.post("/{batch_id}/archive", response_model=BatchOut)
+def archive_batch(
+    batch_id: str,
+    payload: BatchArchiveRequest | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN)),
+):
+    batch = _get_batch(db, batch_id)
+    if batch.is_archived:
+        return batch
+    batch.is_archived = True
+    batch.archived_at = datetime.now(timezone.utc)
+    batch.archived_by = user.id
+    batch.archive_reason = ((payload.reason if payload else "") or "").strip() or None
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+@router.post("/{batch_id}/restore", response_model=BatchOut)
+def restore_batch(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN)),
+):
+    batch = _get_batch(db, batch_id)
+    if not batch.is_archived:
+        return batch
+    batch.is_archived = False
+    batch.archived_at = None
+    batch.archived_by = None
+    batch.archive_reason = None
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
 @router.delete("/{batch_id}", response_model=BatchDeleteResponse)
 def delete_batch(
     batch_id: str,
@@ -505,17 +553,19 @@ def delete_batch(
     user=Depends(require_roles(Role.ADMIN)),
 ):
     batch = _get_batch(db, batch_id)
+    _ensure_batch_not_archived(batch)
     if batch.status != BatchStatus.CREATED:
         raise HTTPException(status_code=400, detail="Only created vouchers can be deleted")
 
-    items = (
-        db.query(BatchItem)
-        .options(selectinload(BatchItem.job))
+    item_count = (
+        db.query(func.count(BatchItem.id))
         .filter(BatchItem.batch_id == batch.id)
-        .all()
-    )
-    for batch_item in items:
-        _remove_batch_item(batch, batch_item, user)
+        .scalar()
+    ) or 0
+    if item_count:
+        raise HTTPException(status_code=400, detail="Only empty created vouchers can be deleted")
+    if db.query(Incident.id).filter(Incident.batch_id == batch.id).first():
+        raise HTTPException(status_code=400, detail="Voucher with incidents can only be archived")
 
     deleted_batch_id = batch.id
     deleted_batch_code = batch.batch_code
@@ -555,6 +605,7 @@ def get_manifest_xlsx(batch_id: str, db: Session = Depends(get_db), user=Depends
 @router.post("/{batch_id}/close", response_model=BatchOut)
 def close_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
     batch = _get_batch(db, batch_id)
+    _ensure_batch_not_archived(batch)
     jobs = [item.job for item in batch.items]
     allowed_statuses = {
         Status.RECEIVED_AT_SHOP,

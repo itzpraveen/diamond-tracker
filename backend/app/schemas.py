@@ -214,8 +214,16 @@ class BatchOut(BaseModel):
     status: BatchStatus
     item_count: int
     manifest_pdf_url: Optional[str] = None
+    is_archived: bool
+    archived_at: Optional[datetime] = None
+    archived_by: Optional[UUID] = None
+    archive_reason: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class BatchArchiveRequest(BaseModel):
+    reason: Optional[str] = None
 
 
 class BatchDeleteResponse(BaseModel):

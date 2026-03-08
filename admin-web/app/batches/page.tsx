@@ -184,6 +184,7 @@ function BatchDetailModal({
 
   const batch = batchQuery.data;
   const factories = factoriesQuery.data || [];
+  const isArchived = Boolean(batch?.is_archived);
   const readyLabel = statusLabel("PACKED_READY");
   const selectedFactoryName =
     batch?.factory_name || factories.find((factory) => factory.id === selectedFactoryId)?.name || "";
@@ -229,10 +230,10 @@ function BatchDetailModal({
     setScanFeedbackMessage(idleScanFeedbackMessage);
   }, [idleScanFeedbackMessage, scanFeedback]);
 
-  const canAddItems = batch?.status === "CREATED";
-  const canDispatch = batch?.status === "CREATED" && batch?.item_count > 0;
-  const canClose = batch?.status === "DISPATCHED";
-  const canEditItems = Boolean(batch) && batch.status !== "CLOSED";
+  const canAddItems = batch?.status === "CREATED" && !isArchived;
+  const canDispatch = batch?.status === "CREATED" && batch?.item_count > 0 && !isArchived;
+  const canClose = batch?.status === "DISPATCHED" && !isArchived;
+  const canEditItems = Boolean(batch) && batch.status !== "CLOSED" && !isArchived;
   const isVoucherFactoryLocked = Boolean(batch?.factory_id);
   const canClearBatch =
     canEditItems &&
@@ -351,6 +352,15 @@ function BatchDetailModal({
             </p>
           </div>
         </div>
+
+        {isArchived && (
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-medium text-amber-900">Archived voucher</p>
+            <p className="mt-1 text-sm text-amber-800">
+              This voucher is hidden from the default list. Restore it from the vouchers page before editing.
+            </p>
+          </div>
+        )}
 
         <RoleGate roles={["Admin", "Dispatch"]}>
           {canAddItems && (
@@ -653,11 +663,12 @@ export default function BatchesPage() {
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
   const [createError, setCreateError] = useState("");
   const [pageError, setPageError] = useState("");
-  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [mutatingBatchId, setMutatingBatchId] = useState<string | null>(null);
 
   const batchesQuery = useQuery({
-    queryKey: ["batches"],
-    queryFn: () => request<any[]>("/batches")
+    queryKey: ["batches", showArchived],
+    queryFn: () => request<any[]>(`/batches${showArchived ? "?include_archived=true" : ""}`)
   });
 
   const factoriesQuery = useQuery({
@@ -683,13 +694,14 @@ export default function BatchesPage() {
     }
   });
 
-  const deleteMutation = useMutation({
+  const archiveMutation = useMutation({
     mutationFn: (batchId: string) =>
-      request(`/batches/${batchId}`, {
-        method: "DELETE"
+      request(`/batches/${batchId}/archive`, {
+        method: "POST",
+        body: JSON.stringify({})
       }),
     onSuccess: (_data, batchId) => {
-      setDeletingBatchId(null);
+      setMutatingBatchId(null);
       setPageError("");
       if (selectedBatchId === batchId) {
         setSelectedBatchId(null);
@@ -697,8 +709,24 @@ export default function BatchesPage() {
       batchesQuery.refetch();
     },
     onError: (err: any) => {
-      setDeletingBatchId(null);
-      setPageError(err?.message || "Failed to delete voucher");
+      setMutatingBatchId(null);
+      setPageError(err?.message || "Failed to archive voucher");
+    }
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (batchId: string) =>
+      request(`/batches/${batchId}/restore`, {
+        method: "POST"
+      }),
+    onSuccess: () => {
+      setMutatingBatchId(null);
+      setPageError("");
+      batchesQuery.refetch();
+    },
+    onError: (err: any) => {
+      setMutatingBatchId(null);
+      setPageError(err?.message || "Failed to restore voucher");
     }
   });
 
@@ -728,22 +756,32 @@ export default function BatchesPage() {
     createMutation.mutate(selectedCreateFactoryId);
   };
 
-  const handleDeleteVoucher = (batch: any) => {
-    if (deleteMutation.isPending) {
+  const handleArchiveVoucher = (batch: any) => {
+    if (archiveMutation.isPending || restoreMutation.isPending) {
       return;
     }
-    const hasItems = Number(batch.item_count || 0) > 0;
     const confirmed = window.confirm(
-      hasItems
-        ? `Delete ${batch.batch_code} and remove its ${batch.item_count} item${batch.item_count === 1 ? "" : "s"} from the voucher?\n\nItems in a created voucher will be returned to Packed Ready.`
-        : `Delete ${batch.batch_code} permanently?`
+      `Archive ${batch.batch_code}?\n\nArchived vouchers are hidden from the default list and can be restored later.`
     );
     if (!confirmed) {
       return;
     }
-    setDeletingBatchId(batch.id);
+    setMutatingBatchId(batch.id);
     setPageError("");
-    deleteMutation.mutate(batch.id);
+    archiveMutation.mutate(batch.id);
+  };
+
+  const handleRestoreVoucher = (batch: any) => {
+    if (archiveMutation.isPending || restoreMutation.isPending) {
+      return;
+    }
+    const confirmed = window.confirm(`Restore ${batch.batch_code} to the active vouchers list?`);
+    if (!confirmed) {
+      return;
+    }
+    setMutatingBatchId(batch.id);
+    setPageError("");
+    restoreMutation.mutate(batch.id);
   };
 
   return (
@@ -754,6 +792,18 @@ export default function BatchesPage() {
             <CardLabel>Vouchers</CardLabel>
             <CardTitle>Issue Vouchers</CardTitle>
             <CardDescription>Create multiple factory-specific vouchers per day, fix scan mistakes, and export Excel.</CardDescription>
+            <RoleGate roles={["Admin"]}>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  variant={showArchived ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => setShowArchived((current) => !current)}
+                >
+                  {showArchived ? "Hide Archived" : "Show Archived"}
+                </Button>
+                <p className="text-xs text-slate">Archived vouchers stay recoverable. Legacy BATCH vouchers remain hidden.</p>
+              </div>
+            </RoleGate>
           </div>
           <RoleGate roles={["Admin", "Dispatch"]}>
             <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:min-w-[28rem]">
@@ -824,7 +874,12 @@ export default function BatchesPage() {
             <TBody>
               {batches.map((batch) => (
                 <TR key={batch.id}>
-                  <TD className="font-medium">{batch.batch_code}</TD>
+                  <TD>
+                    <div>
+                      <p className="font-medium">{batch.batch_code}</p>
+                      {batch.is_archived && <p className="text-xs text-slate">Archived</p>}
+                    </div>
+                  </TD>
                   <TD>
                     <StatusBadge status={batch.status} />
                   </TD>
@@ -838,14 +893,23 @@ export default function BatchesPage() {
                         Open
                       </Button>
                       <RoleGate roles={["Admin"]}>
-                        {batch.status === "CREATED" && (
+                        {batch.is_archived ? (
                           <Button
-                            variant="danger"
+                            variant="outline"
                             size="sm"
-                            onClick={() => handleDeleteVoucher(batch)}
-                            disabled={deleteMutation.isPending}
+                            onClick={() => handleRestoreVoucher(batch)}
+                            disabled={archiveMutation.isPending || restoreMutation.isPending}
                           >
-                            {deleteMutation.isPending && deletingBatchId === batch.id ? "Deleting..." : "Delete"}
+                            {restoreMutation.isPending && mutatingBatchId === batch.id ? "Restoring..." : "Restore"}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleArchiveVoucher(batch)}
+                            disabled={archiveMutation.isPending || restoreMutation.isPending}
+                          >
+                            {archiveMutation.isPending && mutatingBatchId === batch.id ? "Archiving..." : "Archive"}
                           </Button>
                         )}
                       </RoleGate>
@@ -864,6 +928,7 @@ export default function BatchesPage() {
                 <div>
                   <p className="font-semibold">{batch.batch_code}</p>
                   <p className="text-sm text-slate">{batch.factory_name || "No factory"}</p>
+                  {batch.is_archived && <p className="mt-1 text-xs text-slate">Archived</p>}
                 </div>
                 <StatusBadge status={batch.status} size="sm" />
               </div>
@@ -887,15 +952,25 @@ export default function BatchesPage() {
                     Open Voucher
                   </Button>
                   <RoleGate roles={["Admin"]}>
-                    {batch.status === "CREATED" && (
+                    {batch.is_archived ? (
                       <Button
-                        variant="danger"
+                        variant="outline"
                         size="sm"
                         className="w-full"
-                        onClick={() => handleDeleteVoucher(batch)}
-                        disabled={deleteMutation.isPending}
+                        onClick={() => handleRestoreVoucher(batch)}
+                        disabled={archiveMutation.isPending || restoreMutation.isPending}
                       >
-                        {deleteMutation.isPending && deletingBatchId === batch.id ? "Deleting..." : "Delete Voucher"}
+                        {restoreMutation.isPending && mutatingBatchId === batch.id ? "Restoring..." : "Restore Voucher"}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => handleArchiveVoucher(batch)}
+                        disabled={archiveMutation.isPending || restoreMutation.isPending}
+                      >
+                        {archiveMutation.isPending && mutatingBatchId === batch.id ? "Archiving..." : "Archive Voucher"}
                       </Button>
                     )}
                   </RoleGate>
@@ -907,7 +982,7 @@ export default function BatchesPage() {
 
         {!batches.length && (
           <div className="py-12 text-center">
-            <p className="text-slate">No vouchers found.</p>
+            <p className="text-slate">{showArchived ? "No active or archived vouchers found." : "No active vouchers found."}</p>
           </div>
         )}
       </Card>

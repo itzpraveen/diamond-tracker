@@ -190,6 +190,8 @@ def _get_batch_by_uuid(db: Session, batch_id: uuid.UUID) -> Batch:
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Voucher not found")
+    if batch.is_archived:
+        raise HTTPException(status_code=400, detail="Voucher is archived")
     if batch.status == BatchStatus.CLOSED:
         raise HTTPException(status_code=400, detail="Voucher is closed")
     return batch
