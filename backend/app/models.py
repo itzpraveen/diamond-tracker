@@ -104,7 +104,11 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    jobs = relationship("ItemJob", back_populates="current_holder")
+    jobs = relationship(
+        "ItemJob",
+        back_populates="current_holder",
+        foreign_keys="ItemJob.current_holder_user_id",
+    )
 
 
 class Branch(Base):
@@ -162,7 +166,11 @@ class ItemJob(Base):
     archive_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     branch = relationship("Branch", back_populates="jobs")
-    current_holder = relationship("User", back_populates="jobs")
+    current_holder = relationship(
+        "User",
+        back_populates="jobs",
+        foreign_keys=[current_holder_user_id],
+    )
     factory = relationship("Factory", back_populates="jobs")
     status_events = relationship("StatusEvent", back_populates="job", order_by="StatusEvent.timestamp")
     batch_items = relationship("BatchItem", back_populates="job")
