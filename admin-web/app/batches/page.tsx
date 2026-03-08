@@ -702,7 +702,7 @@ export default function BatchesPage() {
     }
   });
 
-  const batches = batchesQuery.data || [];
+  const batches = (batchesQuery.data || []).filter((batch) => !batch.batch_code.startsWith("BATCH-"));
   const factories = factoriesQuery.data || [];
   const activeFactories = factories.filter((factory) => factory.is_active !== false);
 
