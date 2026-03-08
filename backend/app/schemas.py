@@ -152,6 +152,7 @@ class JobOut(BaseModel):
 class StatusEventOut(BaseModel):
     id: UUID
     job_id: UUID
+    job_code: Optional[str] = None
     from_status: Optional[Status] = None
     to_status: Status
     scanned_by_user_id: UUID

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -49,6 +50,17 @@ function formatDateTime(value?: string | Date | null) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
+}
+
+function isDelayedBatch(batch: { expected_return_date?: string | null; dispatch_date?: string | null; is_archived?: boolean }) {
+  if (batch.is_archived || !batch.dispatch_date || !batch.expected_return_date) {
+    return false;
+  }
+  const expectedReturn = new Date(batch.expected_return_date);
+  if (Number.isNaN(expectedReturn.getTime())) {
+    return false;
+  }
+  return expectedReturn.getTime() < Date.now();
 }
 
 function toDateInputValue(value?: string | Date | null) {
@@ -657,14 +669,25 @@ function BatchDetailModal({
   );
 }
 
-export default function BatchesPage() {
+function BatchesPageContent() {
   const { request } = useApi();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
   const [createError, setCreateError] = useState("");
   const [pageError, setPageError] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived, setShowArchived] = useState(() => searchParams.get("include_archived") === "true");
+  const [delayedOnly, setDelayedOnly] = useState(() => searchParams.get("delayed") === "true");
   const [mutatingBatchId, setMutatingBatchId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (showArchived) params.set("include_archived", "true");
+    if (delayedOnly) params.set("delayed", "true");
+    const nextPath = params.toString() ? `/batches?${params.toString()}` : "/batches";
+    router.replace(nextPath, { scroll: false });
+  }, [delayedOnly, router, showArchived]);
 
   const batchesQuery = useQuery({
     queryKey: ["batches", showArchived],
@@ -730,7 +753,17 @@ export default function BatchesPage() {
     }
   });
 
-  const batches = (batchesQuery.data || []).filter((batch) => !batch.batch_code.startsWith("BATCH-"));
+  const batches = useMemo(
+    () =>
+      (batchesQuery.data || [])
+        .filter((batch) => !batch.batch_code.startsWith("BATCH-"))
+        .filter((batch) => (delayedOnly ? isDelayedBatch(batch) : true)),
+    [batchesQuery.data, delayedOnly]
+  );
+  const delayedVoucherCount = useMemo(
+    () => (batchesQuery.data || []).filter((batch) => !batch.batch_code.startsWith("BATCH-") && isDelayedBatch(batch)).length,
+    [batchesQuery.data]
+  );
   const factories = factoriesQuery.data || [];
   const activeFactories = factories.filter((factory) => factory.is_active !== false);
 
@@ -792,15 +825,24 @@ export default function BatchesPage() {
             <CardLabel>Vouchers</CardLabel>
             <CardTitle>Issue Vouchers</CardTitle>
             <CardDescription>Create multiple factory-specific vouchers per day, fix scan mistakes, and export Excel.</CardDescription>
-            <RoleGate roles={["Admin"]}>
+            <RoleGate roles={["Admin", "Dispatch"]}>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button
-                  variant={showArchived ? "primary" : "outline"}
+                  variant={delayedOnly ? "primary" : "outline"}
                   size="sm"
-                  onClick={() => setShowArchived((current) => !current)}
+                  onClick={() => setDelayedOnly((current) => !current)}
                 >
-                  {showArchived ? "Hide Archived" : "Show Archived"}
+                  {delayedOnly ? "Show All Vouchers" : `Delayed Only${delayedVoucherCount ? ` (${delayedVoucherCount})` : ""}`}
                 </Button>
+                <RoleGate roles={["Admin"]}>
+                  <Button
+                    variant={showArchived ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setShowArchived((current) => !current)}
+                  >
+                    {showArchived ? "Hide Archived" : "Show Archived"}
+                  </Button>
+                </RoleGate>
                 <p className="text-xs text-slate">Archived vouchers stay recoverable. Legacy BATCH vouchers remain hidden.</p>
               </div>
             </RoleGate>
@@ -855,6 +897,13 @@ export default function BatchesPage() {
         {pageError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
             <p className="text-sm text-red-700">{pageError}</p>
+          </div>
+        )}
+        {delayedOnly && (
+          <div className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-700">Dashboard Focus</p>
+            <p className="mt-1 text-sm font-semibold text-ink">Showing only delayed vouchers</p>
+            <p className="mt-1 text-xs text-slate">These vouchers have crossed their expected return date and need factory follow-up.</p>
           </div>
         )}
 
@@ -997,5 +1046,23 @@ export default function BatchesPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+export default function BatchesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <Card className="min-h-[220px]">
+            <div className="flex h-full items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-forest border-t-transparent" />
+            </div>
+          </Card>
+        </AppShell>
+      }
+    >
+      <BatchesPageContent />
+    </Suspense>
   );
 }

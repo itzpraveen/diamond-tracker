@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 import enum
 import uuid
@@ -406,6 +406,7 @@ def create_job(payload: JobCreate, user=Depends(require_roles(Role.PURCHASE, Rol
 @router.get("", response_model=list[JobOut])
 def list_jobs(
     status: Optional[Status] = Query(default=None),
+    attention: Optional[str] = Query(default=None),
     from_date: Optional[datetime] = Query(default=None),
     to_date: Optional[datetime] = Query(default=None),
     batch_id: Optional[str] = Query(default=None),
@@ -425,6 +426,45 @@ def list_jobs(
         query = query.filter(ItemJob.is_archived.is_(False))
     if status:
         query = query.filter(ItemJob.current_status == status)
+    if attention:
+        now = datetime.now(timezone.utc)
+        if attention == "overdue_returns":
+            query = query.filter(
+                ItemJob.target_return_date.isnot(None),
+                ItemJob.target_return_date < now,
+                ItemJob.current_status.in_(
+                    [
+                        Status.PURCHASED,
+                        Status.PACKED_READY,
+                        Status.DISPATCHED_TO_FACTORY,
+                        Status.RECEIVED_AT_FACTORY,
+                        Status.RETURNED_FROM_FACTORY,
+                        Status.ON_HOLD,
+                    ]
+                ),
+            )
+        elif attention == "aged_over_7":
+            query = query.filter(
+                func.coalesce(ItemJob.last_scan_at, ItemJob.created_at) < now - timedelta(days=7),
+                ItemJob.current_status.notin_([Status.DELIVERED_TO_CUSTOMER, Status.CANCELLED]),
+            )
+        elif attention == "at_factory":
+            query = query.filter(
+                ItemJob.current_status.in_([Status.DISPATCHED_TO_FACTORY, Status.RECEIVED_AT_FACTORY])
+            )
+        elif attention == "awaiting_closure":
+            query = query.filter(
+                ItemJob.current_status.in_(
+                    [
+                        Status.RETURNED_FROM_FACTORY,
+                        Status.RECEIVED_AT_SHOP,
+                        Status.ADDED_TO_STOCK,
+                        Status.HANDED_TO_DELIVERY,
+                    ]
+                )
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid attention filter")
     if from_date:
         query = query.filter(ItemJob.created_at >= from_date)
     if to_date:

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -29,6 +30,20 @@ const statuses = [
 const terminalStatuses = new Set(["DELIVERED_TO_CUSTOMER", "CANCELLED"]);
 const labelPositions = [1, 2, 3, 4, 5, 6];
 const DEFAULT_PAGE_SIZE = 20;
+const attentionOptions = [
+  { value: "", label: "All operational items", description: "Show the full items list." },
+  { value: "overdue_returns", label: "Overdue returns", description: "Items already past target return date." },
+  { value: "aged_over_7", label: "Aged over 7 days", description: "Items sitting too long without movement." },
+  { value: "at_factory", label: "Currently at factory", description: "Items still in the factory pipeline." },
+  { value: "awaiting_closure", label: "Awaiting closure", description: "Returned or ready items still pending final closure." }
+] as const;
+
+function toDateInputValue(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
 
 function CreateJobModal({
   onClose,
@@ -430,22 +445,36 @@ function CreateJobModal({
   );
 }
 
-export default function ItemsPage() {
+function ItemsPageContent() {
   const { request, requestBlob } = useApi();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [actionError, setActionError] = useState("");
   const [startPosition, setStartPosition] = useState(1);
 
   // Filters
-  const [jobIdFilter, setJobIdFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [phoneFilter, setPhoneFilter] = useState("");
-  const [factoryFilter, setFactoryFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const [jobIdFilter, setJobIdFilter] = useState(() => searchParams.get("job_id") ?? "");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
+  const [phoneFilter, setPhoneFilter] = useState(() => searchParams.get("phone") ?? "");
+  const [factoryFilter, setFactoryFilter] = useState(() => searchParams.get("factory_id") ?? "");
+  const [attentionFilter, setAttentionFilter] = useState(() => searchParams.get("attention") ?? "");
+  const [fromDate, setFromDate] = useState(() => toDateInputValue(searchParams.get("from_date")));
+  const [toDate, setToDate] = useState(() => toDateInputValue(searchParams.get("to_date")));
+  const [showFilters, setShowFilters] = useState(
+    () =>
+      Boolean(
+        searchParams.get("job_id") ||
+          searchParams.get("status") ||
+          searchParams.get("phone") ||
+          searchParams.get("factory_id") ||
+          searchParams.get("attention") ||
+          searchParams.get("from_date") ||
+          searchParams.get("to_date")
+      )
+  );
+  const [showArchived, setShowArchived] = useState(() => searchParams.get("include_archived") === "true");
   const [sortKey, setSortKey] = useState("last_scan_at");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [pageIndex, setPageIndex] = useState(0);
@@ -456,6 +485,7 @@ export default function ItemsPage() {
     if (jobIdFilter) params.append("job_id", jobIdFilter);
     if (statusFilter) params.append("status", statusFilter);
     if (phoneFilter) params.append("phone", phoneFilter);
+    if (attentionFilter) params.append("attention", attentionFilter);
     if (fromDate) params.append("from_date", new Date(fromDate).toISOString());
     if (toDate) params.append("to_date", new Date(toDate).toISOString());
     if (factoryFilter) params.append("factory_id", factoryFilter);
@@ -468,7 +498,7 @@ export default function ItemsPage() {
   };
 
   const jobsQuery = useQuery({
-    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, showArchived, sortKey, sortOrder, pageIndex, pageSize],
+    queryKey: ["jobs", jobIdFilter, statusFilter, phoneFilter, factoryFilter, attentionFilter, fromDate, toDate, showArchived, sortKey, sortOrder, pageIndex, pageSize],
     queryFn: () => {
       const queryString = buildQueryParams();
       return request<any[]>(`/jobs?${queryString}`);
@@ -488,19 +518,36 @@ export default function ItemsPage() {
   }, [jobs]);
 
   useEffect(() => {
+    const params = new URLSearchParams();
+    if (jobIdFilter) params.set("job_id", jobIdFilter);
+    if (statusFilter) params.set("status", statusFilter);
+    if (phoneFilter) params.set("phone", phoneFilter);
+    if (factoryFilter) params.set("factory_id", factoryFilter);
+    if (attentionFilter) params.set("attention", attentionFilter);
+    if (fromDate) params.set("from_date", new Date(fromDate).toISOString());
+    if (toDate) params.set("to_date", new Date(toDate).toISOString());
+    if (showArchived) params.set("include_archived", "true");
+    const nextPath = params.toString() ? `/items?${params.toString()}` : "/items";
+    router.replace(nextPath, { scroll: false });
+  }, [attentionFilter, factoryFilter, fromDate, jobIdFilter, phoneFilter, router, showArchived, statusFilter, toDate]);
+
+  useEffect(() => {
     setPageIndex(0);
-  }, [jobIdFilter, statusFilter, phoneFilter, factoryFilter, fromDate, toDate, showArchived, sortKey, sortOrder, pageSize]);
+  }, [jobIdFilter, statusFilter, phoneFilter, factoryFilter, attentionFilter, fromDate, toDate, showArchived, sortKey, sortOrder, pageSize]);
 
   const clearFilters = () => {
     setJobIdFilter("");
     setStatusFilter("");
     setPhoneFilter("");
     setFactoryFilter("");
+    setAttentionFilter("");
     setFromDate("");
     setToDate("");
   };
 
-  const hasFilters = jobIdFilter || statusFilter || phoneFilter || factoryFilter || fromDate || toDate;
+  const attentionCopy =
+    attentionOptions.find((option) => option.value === attentionFilter) || attentionOptions[0];
+  const hasFilters = jobIdFilter || statusFilter || phoneFilter || factoryFilter || attentionFilter || fromDate || toDate;
   const hasMore = jobs.length >= pageSize;
   const pageJobs = jobs;
 
@@ -863,6 +910,22 @@ export default function ItemsPage() {
           </p>
         </RoleGate>
         {actionError && <p className="text-sm text-red-600">{actionError}</p>}
+        {attentionFilter && (
+          <div className="flex flex-col gap-3 rounded-xl border border-amber-200/80 bg-amber-50/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-amber-700">Dashboard Focus</p>
+              <p className="mt-1 text-sm font-semibold text-ink">{attentionCopy.label}</p>
+              <p className="mt-1 text-xs text-slate">{attentionCopy.description}</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAttentionFilter("")}
+            >
+              Clear Focus
+            </Button>
+          </div>
+        )}
 
         {/* Filters Section */}
         {showFilters && (
@@ -878,7 +941,7 @@ export default function ItemsPage() {
                 </button>
               )}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate">Job ID</label>
                 <Input
@@ -911,6 +974,19 @@ export default function ItemsPage() {
                   {factories.map((f) => (
                     <option key={f.id} value={f.id}>
                       {f.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate">Focus</label>
+                <Select
+                  value={attentionFilter}
+                  onChange={(e) => setAttentionFilter(e.target.value)}
+                >
+                  {attentionOptions.map((option) => (
+                    <option key={option.value || "all"} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </Select>
@@ -1185,5 +1261,23 @@ export default function ItemsPage() {
         />
       )}
     </AppShell>
+  );
+}
+
+export default function ItemsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <Card className="min-h-[220px]">
+            <div className="flex h-full items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-forest border-t-transparent" />
+            </div>
+          </Card>
+        </AppShell>
+      }
+    >
+      <ItemsPageContent />
+    </Suspense>
   );
 }

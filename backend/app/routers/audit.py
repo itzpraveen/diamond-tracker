@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import ItemJob, Role, Status, StatusEvent
+from app.models import ItemJob, Role, Status, StatusEvent, User
 from app.schemas import StatusEventOut
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -21,6 +21,7 @@ def audit_events(
     to_status: Optional[Status] = Query(default=None),
     from_date: Optional[datetime] = Query(default=None),
     to_date: Optional[datetime] = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
     db: Session = Depends(get_db),
     user=Depends(require_roles(Role.ADMIN)),
 ):
@@ -41,4 +42,24 @@ def audit_events(
         query = query.filter(StatusEvent.timestamp >= from_date)
     if to_date:
         query = query.filter(StatusEvent.timestamp <= to_date)
-    return query.order_by(StatusEvent.timestamp.desc()).limit(500).all()
+
+    events = query.order_by(StatusEvent.timestamp.desc()).limit(limit).all()
+    if not events:
+        return []
+
+    job_ids = {event.job_id for event in events}
+    user_ids = {event.scanned_by_user_id for event in events}
+    jobs = db.query(ItemJob).filter(ItemJob.id.in_(job_ids)).all()
+    users = db.query(User).filter(User.id.in_(user_ids)).all()
+    job_map = {job.id: job.job_id for job in jobs}
+    user_map = {entry.id: entry.username for entry in users}
+
+    return [
+        StatusEventOut.model_validate(event).model_copy(
+            update={
+                "job_code": job_map.get(event.job_id),
+                "scanned_by_username": user_map.get(event.scanned_by_user_id),
+            }
+        )
+        for event in events
+    ]

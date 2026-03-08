@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth";
 import { useApi } from "@/lib/useApi";
+import { cn } from "@/lib/utils";
 
 type AgingBucketRow = {
   status: string;
@@ -81,6 +82,17 @@ type IncidentRow = {
   created_at: string;
 };
 
+type AuditEventRow = {
+  id: string;
+  job_code?: string | null;
+  from_status?: string | null;
+  to_status: string;
+  scanned_by_username?: string | null;
+  scanned_by_role: string;
+  timestamp: string;
+  override_reason?: string | null;
+};
+
 const tooltipStyle = {
   backgroundColor: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(16,23,20,0.1)",
@@ -94,12 +106,15 @@ const chartColors = {
   gold: "#d4a15c",
   sand: "#f0c27b",
   stone: "#7d8a84",
-  mist: "#b7c2bc",
-  danger: "#b42318"
+  mist: "#b7c2bc"
 };
 
 function sumAgingBuckets(row: AgingBucketRow) {
   return row.bucket_0_2 + row.bucket_3_7 + row.bucket_8_15 + row.bucket_16_30 + row.bucket_30_plus;
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return count === 1 ? singular : plural;
 }
 
 function formatShortDate(value?: string | null) {
@@ -110,9 +125,35 @@ function formatShortDate(value?: string | null) {
   }).format(new Date(value));
 }
 
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatRelativeTime(value?: string | null) {
+  if (!value) return "Unknown";
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return "Unknown";
+  const deltaMs = Date.now() - timestamp;
+  const minutes = Math.max(0, Math.floor(deltaMs / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return formatShortDate(value);
+}
+
 function formatStatusName(value: string) {
   return value
     .replace(/_/g, " ")
+    .replace(/->/g, " -> ")
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -130,41 +171,83 @@ function truncate(text: string, maxLength = 58) {
   return `${text.slice(0, maxLength - 1)}…`;
 }
 
+function countOnDay(values: Array<string | null | undefined>, date = new Date()) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return values.reduce((count, value) => {
+    if (!value) return count;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return count;
+    return parsed >= start && parsed < end ? count + 1 : count;
+  }, 0);
+}
+
 function KpiCard({
   label,
   value,
   caption,
+  context,
+  href,
   tone = "default"
 }: {
   label: string;
   value: string | number;
   caption: string;
+  context?: string;
+  href?: string;
   tone?: "default" | "warning" | "danger" | "success";
 }) {
+  const numericValue = typeof value === "number" ? value : Number(value);
+  const isZero = typeof numericValue === "number" && !Number.isNaN(numericValue) && numericValue === 0;
   const toneClasses =
-    tone === "danger"
-      ? "border-red-200/70 bg-red-50/70"
-      : tone === "warning"
-        ? "border-amber-200/70 bg-amber-50/70"
-        : tone === "success"
-          ? "border-emerald-200/70 bg-emerald-50/70"
-          : "border-ink/8 bg-white/92";
-
+    isZero
+      ? "border-ink/6 bg-white/72 shadow-none"
+      : tone === "danger"
+        ? "border-red-200/70 bg-red-50/70"
+        : tone === "warning"
+          ? "border-amber-200/70 bg-amber-50/70"
+          : tone === "success"
+            ? "border-emerald-200/70 bg-emerald-50/70"
+            : "border-ink/8 bg-white/92";
   const accentClasses =
-    tone === "danger"
-      ? "text-red-700"
-      : tone === "warning"
-        ? "text-amber-700"
-        : tone === "success"
-          ? "text-emerald-700"
-          : "text-forest";
+    isZero
+      ? "text-slate"
+      : tone === "danger"
+        ? "text-red-700"
+        : tone === "warning"
+          ? "text-amber-700"
+          : tone === "success"
+            ? "text-emerald-700"
+            : "text-forest";
 
-  return (
-    <Card className={`overflow-hidden border transition-shadow hover:shadow-[var(--shadow-lg)] ${toneClasses}`}>
-      <CardLabel>{label}</CardLabel>
-      <p className={`mt-3 text-3xl font-semibold font-display ${accentClasses}`}>{value}</p>
-      <CardDescription className="mt-2">{caption}</CardDescription>
+  const body = (
+    <Card
+      className={cn(
+        "h-full overflow-hidden border transition-all",
+        toneClasses,
+        href && "hover:-translate-y-0.5 hover:shadow-[var(--shadow-lg)]"
+      )}
+    >
+      <div className="flex h-full flex-col">
+        <CardLabel className={isZero ? "text-slate/70" : undefined}>{label}</CardLabel>
+        <p className={cn("mt-3 text-3xl font-semibold font-display", accentClasses)}>{value}</p>
+        {context ? (
+          <p className={cn("mt-1 text-xs font-medium", isZero ? "text-slate" : accentClasses)}>{context}</p>
+        ) : null}
+        <CardDescription className="mt-2">{caption}</CardDescription>
+        {href ? <p className="mt-4 text-xs font-semibold text-forest">Open filtered list</p> : null}
+      </div>
     </Card>
+  );
+
+  return href ? (
+    <Link href={href} className="block h-full">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }
 
@@ -272,7 +355,14 @@ export default function Dashboard() {
 
   const incidentsQuery = useQuery({
     queryKey: ["incidents", "open"],
-    queryFn: () => request<IncidentRow[]>("/incidents?status=OPEN")
+    queryFn: () => request<IncidentRow[]>("/incidents?status=OPEN"),
+    enabled: canViewOps
+  });
+
+  const recentActivityQuery = useQuery({
+    queryKey: ["audit", "recent"],
+    queryFn: () => request<AuditEventRow[]>("/audit/events?limit=6"),
+    enabled: isAdmin
   });
 
   const isRefreshing =
@@ -282,18 +372,21 @@ export default function Dashboard() {
     repairTargetsQuery.isFetching ||
     delaysQuery.isFetching ||
     factorySummaryQuery.isFetching ||
-    incidentsQuery.isFetching;
+    incidentsQuery.isFetching ||
+    recentActivityQuery.isFetching;
 
   const refreshAll = async () => {
-    await Promise.allSettled([
+    const refreshers: Array<Promise<unknown>> = [
       agingQuery.refetch(),
-      turnaroundQuery.refetch(),
-      userActivityQuery.refetch(),
       repairTargetsQuery.refetch(),
+      incidentsQuery.refetch(),
       delaysQuery.refetch(),
-      factorySummaryQuery.refetch(),
-      incidentsQuery.refetch()
-    ]);
+      factorySummaryQuery.refetch()
+    ];
+    if (isAdmin) {
+      refreshers.push(turnaroundQuery.refetch(), userActivityQuery.refetch(), recentActivityQuery.refetch());
+    }
+    await Promise.allSettled(refreshers);
   };
 
   const agingRows = useMemo(
@@ -330,6 +423,12 @@ export default function Dashboard() {
 
   const repairTargets = repairTargetsQuery.data || { overdue: [], approaching: [], uncollected: [] };
   const openIncidents = incidentsQuery.data || [];
+  const recentActivity = recentActivityQuery.data || [];
+
+  const overdueCount = repairTargets.overdue.length;
+  const delayedVoucherCount = delayedBatches.length;
+  const openIncidentCount = openIncidents.length;
+  const attentionCount = overdueCount + delayedVoucherCount + openIncidentCount;
 
   const stuckOver7Days = useMemo(
     () =>
@@ -340,8 +439,22 @@ export default function Dashboard() {
     [agingRows]
   );
 
+  const agedOver15Days = useMemo(
+    () =>
+      agingRows.reduce((total, row) => {
+        if (row.status === "CANCELLED") return total;
+        return total + row.bucket_16_30 + row.bucket_30_plus;
+      }, 0),
+    [agingRows]
+  );
+
   const atFactoryCount = useMemo(
     () => (factorySummaryQuery.data || []).reduce((total, row) => total + row.at_factory, 0),
+    [factorySummaryQuery.data]
+  );
+
+  const expectedFromFactoryCount = useMemo(
+    () => (factorySummaryQuery.data || []).reduce((total, row) => total + row.expected_from_factory, 0),
     [factorySummaryQuery.data]
   );
 
@@ -350,7 +463,11 @@ export default function Dashboard() {
     [factorySummaryQuery.data]
   );
 
-  const attentionCount = repairTargets.overdue.length + delayedBatches.length + openIncidents.length;
+  const awaitingClosureCount = returnedPendingCount + repairTargets.uncollected.length;
+  const openIncidentsToday = countOnDay(openIncidents.map((incident) => incident.created_at));
+  const overdueToday = countOnDay(repairTargets.overdue.map((job) => job.target_return_date));
+  const delayedToday = countOnDay(delayedBatches.map((batch) => batch.expected_return_date));
+
   const lastUpdated = Math.max(
     agingQuery.dataUpdatedAt || 0,
     turnaroundQuery.dataUpdatedAt || 0,
@@ -358,40 +475,65 @@ export default function Dashboard() {
     repairTargetsQuery.dataUpdatedAt || 0,
     delaysQuery.dataUpdatedAt || 0,
     factorySummaryQuery.dataUpdatedAt || 0,
-    incidentsQuery.dataUpdatedAt || 0
+    incidentsQuery.dataUpdatedAt || 0,
+    recentActivityQuery.dataUpdatedAt || 0
   );
 
-  const leadCopy =
+  const summaryParts = [
+    overdueCount ? `${overdueCount} overdue ${pluralize(overdueCount, "return")}` : null,
+    delayedVoucherCount ? `${delayedVoucherCount} delayed ${pluralize(delayedVoucherCount, "voucher")}` : null,
+    openIncidentCount ? `${openIncidentCount} open ${pluralize(openIncidentCount, "incident")}` : null
+  ].filter(Boolean) as string[];
+
+  const headline =
+    overdueCount > 0
+      ? `${overdueCount} Overdue ${pluralize(overdueCount, "Return")} Need Review`
+      : attentionCount > 0
+        ? `${attentionCount} Records Need Action`
+        : "No Immediate Exceptions";
+
+  const summaryLine =
     attentionCount > 0
-      ? `${attentionCount} records need review across overdue returns, delayed vouchers, and open incidents.`
-      : "No immediate blockers detected across incidents, returns, and voucher delays.";
+      ? `${summaryParts.join(", ")}.`
+      : "Overdue returns, voucher delays, and incidents are currently clear.";
+
+  const secondaryLine =
+    attentionCount > 0 || stuckOver7Days > 0 || atFactoryCount > 0
+      ? `${stuckOver7Days} ${pluralize(stuckOver7Days, "item")} aged over 7 days. ${atFactoryCount} currently at factory.`
+      : "Factory queue and aging pressure are within normal range.";
+
+  const primaryAction =
+    overdueCount > 0
+      ? { href: "/items?attention=overdue_returns", label: "Review Overdue Returns" }
+      : { href: "/items?attention=at_factory", label: "Open Factory Queue" };
+  const voucherAction =
+    delayedVoucherCount > 0
+      ? { href: "/batches?delayed=true", label: "Review Delayed Vouchers" }
+      : { href: "/batches", label: "Manage Vouchers" };
 
   return (
     <div className="space-y-6 animate-fadeUp">
       <Card variant="elevated" className="overflow-hidden">
-        <div className="grid gap-5 lg:grid-cols-[1.45fr_0.85fr] lg:items-end">
+        <div className="grid gap-5 lg:grid-cols-[1.45fr_0.9fr] lg:items-end">
           <div>
-            <CardLabel>Operations Desk</CardLabel>
-            <h1 className="mt-3 text-2xl font-semibold font-display sm:text-3xl">
-              Live workflow pressure, not just charts.
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm text-slate sm:text-base">
-              {leadCopy}
-            </p>
+            <CardLabel>Attention Summary</CardLabel>
+            <h1 className="mt-3 text-2xl font-semibold font-display sm:text-3xl">{headline}</h1>
+            <p className="mt-3 max-w-3xl text-sm text-slate sm:text-base">{summaryLine}</p>
+            <p className="mt-2 max-w-3xl text-sm text-slate">{secondaryLine}</p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Badge variant={attentionCount > 0 ? "warning" : "success"}>{attentionCount} needs attention</Badge>
+              <Badge variant={attentionCount > 0 ? "warning" : "success"}>{attentionCount} needing action</Badge>
               <Badge variant="default">Last updated {formatLastUpdated(lastUpdated)}</Badge>
             </div>
           </div>
           <div className="flex flex-wrap gap-3 lg:justify-end">
-            <Link href="/items">
-              <Button>Review Items</Button>
+            <Link href={primaryAction.href}>
+              <Button>{primaryAction.label}</Button>
             </Link>
-            <Link href="/incidents">
+            <Link href="/incidents?status=OPEN">
               <Button variant="outline">Review Incidents</Button>
             </Link>
-            <Link href="/batches">
-              <Button variant="outline">Manage Vouchers</Button>
+            <Link href={voucherAction.href}>
+              <Button variant="outline">{voucherAction.label}</Button>
             </Link>
             <Button variant="ghost" onClick={() => void refreshAll()} disabled={isRefreshing}>
               {isRefreshing ? "Refreshing..." : "Refresh"}
@@ -403,39 +545,51 @@ export default function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           label="Open Incidents"
-          value={openIncidents.length}
-          caption="Exceptions that still need investigation or resolution."
-          tone={openIncidents.length > 0 ? "danger" : "success"}
+          value={openIncidentCount}
+          context={openIncidentsToday ? `${openIncidentsToday} opened today` : "No new incidents today"}
+          caption="Exceptions still waiting for investigation or resolution."
+          tone={openIncidentCount > 0 ? "danger" : "success"}
+          href="/incidents?status=OPEN"
         />
         <KpiCard
           label="Overdue Returns"
-          value={repairTargets.overdue.length}
-          caption="Items whose target return date has already passed."
-          tone={repairTargets.overdue.length > 0 ? "danger" : "success"}
+          value={overdueCount}
+          context={overdueToday ? `${overdueToday} became overdue today` : "No new overdue returns today"}
+          caption="Items already past target return date and not yet closed."
+          tone={overdueCount > 0 ? "danger" : "success"}
+          href="/items?attention=overdue_returns"
         />
         <KpiCard
-          label="Stuck Over 7 Days"
+          label="Aged > 7 Days"
           value={stuckOver7Days}
+          context={agedOver15Days ? `${agedOver15Days} aged beyond 15 days` : "No deep aging beyond 15 days"}
           caption="Active items sitting too long without the next handoff."
           tone={stuckOver7Days > 0 ? "warning" : "success"}
+          href="/items?attention=aged_over_7"
         />
         <KpiCard
           label="Delayed Vouchers"
-          value={delayedBatches.length}
-          caption="Vouchers past expected return with factory handoff risk."
-          tone={delayedBatches.length > 0 ? "warning" : "success"}
+          value={delayedVoucherCount}
+          context={delayedToday ? `${delayedToday} crossed SLA today` : "No new voucher delays today"}
+          caption="Vouchers whose expected return date has already passed."
+          tone={delayedVoucherCount > 0 ? "warning" : "success"}
+          href="/batches?delayed=true"
         />
         <KpiCard
-          label="At Factory"
+          label="Currently At Factory"
           value={atFactoryCount}
-          caption="Items currently in the factory pipeline right now."
-          tone="default"
+          context={expectedFromFactoryCount ? `${expectedFromFactoryCount} already marked received` : "No items received at factory yet"}
+          caption="Items still moving through the factory pipeline."
+          tone={atFactoryCount > 0 ? "default" : "success"}
+          href="/items?attention=at_factory"
         />
         <KpiCard
-          label="Returned Pending"
-          value={returnedPendingCount + repairTargets.uncollected.length}
-          caption="Returned or ready items still waiting for closure."
-          tone={returnedPendingCount + repairTargets.uncollected.length > 0 ? "warning" : "success"}
+          label="Awaiting Closure"
+          value={awaitingClosureCount}
+          context={repairTargets.uncollected.length ? `${repairTargets.uncollected.length} already past target date` : "No post-return aging detected"}
+          caption="Returned or ready items still waiting for the final closure step."
+          tone={awaitingClosureCount > 0 ? "warning" : "success"}
+          href="/items?attention=awaiting_closure"
         />
       </div>
 
@@ -444,8 +598,8 @@ export default function Dashboard() {
           label="Needs Attention"
           title="Overdue Returns"
           description="Oldest repair commitments that are already late."
-          href="/items"
-          hrefLabel="Open Items"
+          href="/items?attention=overdue_returns"
+          hrefLabel="Review Overdue Returns"
         >
           {repairTargetsQuery.isLoading ? (
             <LoadingPanel />
@@ -490,9 +644,9 @@ export default function Dashboard() {
         <SectionCard
           label="Needs Attention"
           title="Delayed Vouchers"
-          description="Factory vouchers that have crossed their expected return date."
-          href="/batches"
-          hrefLabel="Open Vouchers"
+          description="Factory vouchers that have crossed expected return date."
+          href="/batches?delayed=true"
+          hrefLabel="Open Delayed Vouchers"
         >
           {delaysQuery.isLoading ? (
             <LoadingPanel />
@@ -501,7 +655,7 @@ export default function Dashboard() {
               {delayedBatches.slice(0, 5).map((batch) => (
                 <Link
                   key={batch.batch_code}
-                  href="/batches"
+                  href="/batches?delayed=true"
                   className="block rounded-2xl border border-ink/8 bg-white/70 p-3 transition hover:border-ink/16 hover:bg-white"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -519,7 +673,7 @@ export default function Dashboard() {
           ) : (
             <EmptyPanel
               title="No delayed vouchers"
-              description="Factory voucher return dates are currently on track."
+              description="Voucher return dates are currently on track."
             />
           )}
         </SectionCard>
@@ -528,7 +682,7 @@ export default function Dashboard() {
           label="Needs Attention"
           title="Open Incidents"
           description="Recent exceptions that still need follow-up from operations."
-          href="/incidents"
+          href="/incidents?status=OPEN"
           hrefLabel="Open Incidents"
         >
           {incidentsQuery.isLoading ? (
@@ -538,7 +692,7 @@ export default function Dashboard() {
               {openIncidents.slice(0, 5).map((incident) => (
                 <Link
                   key={incident.id}
-                  href="/incidents"
+                  href="/incidents?status=OPEN"
                   className="block rounded-2xl border border-ink/8 bg-red-50/40 p-3 transition hover:border-red-200 hover:bg-red-50/70"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -609,11 +763,7 @@ export default function Dashboard() {
           ) : turnaroundRows.length ? (
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={turnaroundRows}
-                  layout="vertical"
-                  margin={{ top: 10, right: 20, left: 25, bottom: 0 }}
-                >
+                <BarChart data={turnaroundRows} layout="vertical" margin={{ top: 10, right: 20, left: 25, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,23,20,0.08)" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 11, fill: chartColors.stone }} tickLine={false} axisLine={false} />
                   <YAxis
@@ -645,11 +795,11 @@ export default function Dashboard() {
         </SectionCard>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
+      <div className={cn("grid gap-5", isAdmin ? "xl:grid-cols-2" : "xl:grid-cols-1")}>
         <SectionCard
           label="Factory Pressure"
           title="Factory Queue by Location"
-          description="Where current factory load and returned-pending pressure is sitting."
+          description="Where current factory load and return pressure is sitting."
         >
           {factorySummaryQuery.isLoading ? (
             <LoadingPanel />
@@ -679,6 +829,53 @@ export default function Dashboard() {
           )}
         </SectionCard>
 
+        {isAdmin ? (
+          <SectionCard
+            label="Recent Activity"
+            title="Latest Workflow Events"
+            description="The most recent chain-of-custody changes from the live floor."
+            href="/audit"
+            hrefLabel="Open Audit Log"
+          >
+            {recentActivityQuery.isLoading ? (
+              <LoadingPanel />
+            ) : recentActivity.length ? (
+              <div className="space-y-3">
+                {recentActivity.map((event) => (
+                  <div key={event.id} className="rounded-2xl border border-ink/8 bg-white/80 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{event.job_code || "Item event"}</p>
+                        <p className="mt-1 text-xs text-slate">
+                          {event.from_status ? formatStatusName(event.from_status) : "Created"}{" -> "}{formatStatusName(event.to_status)}
+                        </p>
+                      </div>
+                      <Badge variant={event.override_reason ? "warning" : "default"} size="sm">
+                        {event.override_reason ? "Override" : formatRelativeTime(event.timestamp)}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate">
+                      <span>{event.scanned_by_username || event.scanned_by_role}</span>
+                      <span>•</span>
+                      <span>{formatDateTime(event.timestamp)}</span>
+                    </div>
+                    {event.override_reason ? (
+                      <p className="mt-2 text-xs text-amber-700">Reason: {event.override_reason}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyPanel
+                title="No recent activity"
+                description="Recent scan and handoff activity will appear here."
+              />
+            )}
+          </SectionCard>
+        ) : null}
+      </div>
+
+      {isAdmin ? (
         <SectionCard
           label="User Activity"
           title="Top Scanners"
@@ -717,7 +914,7 @@ export default function Dashboard() {
             />
           )}
         </SectionCard>
-      </div>
+      ) : null}
     </div>
   );
 }

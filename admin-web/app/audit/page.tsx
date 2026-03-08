@@ -37,10 +37,10 @@ export default function AuditPage() {
           <TBody>
             {(auditQuery.data || []).map((event) => (
               <TR key={event.id}>
-                <TD>{event.job_id}</TD>
+                <TD>{event.job_code || event.job_id}</TD>
                 <TD>{statusLabel(event.from_status)}</TD>
                 <TD>{statusLabel(event.to_status)}</TD>
-                <TD>{event.scanned_by_role}</TD>
+                <TD>{event.scanned_by_username || event.scanned_by_role}</TD>
                 <TD>{new Date(event.timestamp).toLocaleString()}</TD>
                 <TD>
                   {event.override_reason ? (
