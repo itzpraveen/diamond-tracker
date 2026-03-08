@@ -16,6 +16,7 @@ from app.models import (
     BatchStatus,
     Branch,
     Factory,
+    Incident,
     ItemJob,
     ItemSource,
     JobEditAudit,
@@ -25,7 +26,18 @@ from app.models import (
     StatusEvent,
     User,
 )
-from app.schemas import JobCreate, JobDetail, JobMetric, JobOut, JobScanRequest, JobUpdate, LabelSheetRequest, StatusEventOut
+from app.schemas import (
+    JobBulkDeleteRequest,
+    JobBulkDeleteResponse,
+    JobCreate,
+    JobDetail,
+    JobMetric,
+    JobOut,
+    JobScanRequest,
+    JobUpdate,
+    LabelSheetRequest,
+    StatusEventOut,
+)
 from app.utils.pdf import generate_label_pdf, generate_label_sheet_pdf
 from app.utils.errors import raise_validation_error
 from app.utils.transitions import (
@@ -94,6 +106,49 @@ def _resolve_factory_name(db: Session, job: ItemJob) -> Optional[str]:
     if batch_item and batch_item.batch and batch_item.batch.factory:
         return batch_item.batch.factory.name
     return None
+
+
+def _delete_jobs(db: Session, job_ids: list[str]) -> tuple[list[str], list[str]]:
+    unique_job_ids = list(dict.fromkeys(job_id.strip() for job_id in job_ids if job_id and job_id.strip()))
+    if not unique_job_ids:
+        return [], []
+
+    jobs = db.query(ItemJob).filter(ItemJob.job_id.in_(unique_job_ids)).all()
+    jobs_by_code = {job.job_id: job for job in jobs}
+    found_jobs = [jobs_by_code[job_id] for job_id in unique_job_ids if job_id in jobs_by_code]
+    missing_job_ids = [job_id for job_id in unique_job_ids if job_id not in jobs_by_code]
+    if not found_jobs:
+        return [], missing_job_ids
+
+    job_db_ids = [job.id for job in found_jobs]
+    affected_batch_ids = [
+        batch_id
+        for (batch_id,) in db.query(BatchItem.batch_id)
+        .filter(BatchItem.job_id.in_(job_db_ids))
+        .distinct()
+        .all()
+    ]
+
+    db.query(StatusEvent).filter(StatusEvent.job_id.in_(job_db_ids)).delete(synchronize_session=False)
+    db.query(JobEditAudit).filter(JobEditAudit.job_id.in_(job_db_ids)).delete(synchronize_session=False)
+    db.query(Incident).filter(Incident.job_id.in_(job_db_ids)).delete(synchronize_session=False)
+    db.query(BatchItem).filter(BatchItem.job_id.in_(job_db_ids)).delete(synchronize_session=False)
+    db.query(ItemJob).filter(ItemJob.id.in_(job_db_ids)).delete(synchronize_session=False)
+    db.flush()
+
+    if affected_batch_ids:
+        batches = db.query(Batch).filter(Batch.id.in_(affected_batch_ids)).all()
+        remaining_counts = {
+            batch_id: count
+            for batch_id, count in db.query(BatchItem.batch_id, func.count(BatchItem.id))
+            .filter(BatchItem.batch_id.in_(affected_batch_ids))
+            .group_by(BatchItem.batch_id)
+            .all()
+        }
+        for batch in batches:
+            batch.item_count = int(remaining_counts.get(batch.id, 0))
+
+    return [job.job_id for job in found_jobs], missing_job_ids
 
 
 def _record_label_print(db: Session, job: ItemJob, user: User) -> bool:
@@ -289,6 +344,33 @@ def job_metrics(
         query = query.filter(ItemJob.created_at <= to_date)
     rows = query.group_by(ItemJob.current_status).all()
     return [JobMetric(status=row.status, count=row.count) for row in rows]
+
+
+@router.delete("/bulk", response_model=JobBulkDeleteResponse)
+def bulk_delete_jobs(
+    payload: JobBulkDeleteRequest,
+    user=Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+):
+    if not any(job_id.strip() for job_id in payload.job_ids):
+        raise HTTPException(status_code=400, detail="Job ids are required")
+
+    try:
+        deleted_job_ids, missing_job_ids = _delete_jobs(db, payload.job_ids)
+        if not deleted_job_ids:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="Jobs not found")
+        db.commit()
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    return JobBulkDeleteResponse(
+        deleted_job_ids=deleted_job_ids,
+        missing_job_ids=missing_job_ids,
+    )
 
 
 @router.get("/{job_id}", response_model=JobDetail)

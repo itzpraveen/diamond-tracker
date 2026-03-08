@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session, selectinload
 from app.db import get_db
 from app.deps import require_roles
 from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, Incident, ItemJob, Role, Status, StatusEvent
-from app.schemas import BatchAddItem, BatchCreate, BatchDetail, BatchDispatchRequest, BatchOut, JobOut
+from app.schemas import (
+    BatchAddItem,
+    BatchCreate,
+    BatchDeleteResponse,
+    BatchDetail,
+    BatchDispatchRequest,
+    BatchOut,
+    JobOut,
+)
 from app.utils.pdf import generate_manifest_pdf
 from app.utils.roles import select_role_for_action
 from app.utils.transitions import STATUS_HOLDER_ROLE
@@ -488,6 +496,35 @@ def clear_batch_items(
     db.commit()
     db.refresh(batch)
     return batch
+
+
+@router.delete("/{batch_id}", response_model=BatchDeleteResponse)
+def delete_batch(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN)),
+):
+    batch = _get_batch(db, batch_id)
+    if batch.status != BatchStatus.CREATED:
+        raise HTTPException(status_code=400, detail="Only created vouchers can be deleted")
+
+    items = (
+        db.query(BatchItem)
+        .options(selectinload(BatchItem.job))
+        .filter(BatchItem.batch_id == batch.id)
+        .all()
+    )
+    for batch_item in items:
+        _remove_batch_item(batch, batch_item, user)
+
+    deleted_batch_id = batch.id
+    deleted_batch_code = batch.batch_code
+    db.delete(batch)
+    db.commit()
+    return BatchDeleteResponse(
+        deleted_batch_id=deleted_batch_id,
+        deleted_batch_code=deleted_batch_code,
+    )
 
 
 @router.get("/{batch_id}/manifest.pdf")

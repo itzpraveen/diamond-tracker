@@ -652,6 +652,8 @@ export default function BatchesPage() {
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
   const [createError, setCreateError] = useState("");
+  const [pageError, setPageError] = useState("");
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
 
   const batchesQuery = useQuery({
     queryKey: ["batches"],
@@ -681,6 +683,25 @@ export default function BatchesPage() {
     }
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (batchId: string) =>
+      request(`/batches/${batchId}`, {
+        method: "DELETE"
+      }),
+    onSuccess: (_data, batchId) => {
+      setDeletingBatchId(null);
+      setPageError("");
+      if (selectedBatchId === batchId) {
+        setSelectedBatchId(null);
+      }
+      batchesQuery.refetch();
+    },
+    onError: (err: any) => {
+      setDeletingBatchId(null);
+      setPageError(err?.message || "Failed to delete voucher");
+    }
+  });
+
   const batches = batchesQuery.data || [];
   const factories = factoriesQuery.data || [];
   const activeFactories = factories.filter((factory) => factory.is_active !== false);
@@ -705,6 +726,24 @@ export default function BatchesPage() {
     }
     setCreateError("");
     createMutation.mutate(selectedCreateFactoryId);
+  };
+
+  const handleDeleteVoucher = (batch: any) => {
+    if (deleteMutation.isPending) {
+      return;
+    }
+    const hasItems = Number(batch.item_count || 0) > 0;
+    const confirmed = window.confirm(
+      hasItems
+        ? `Delete ${batch.batch_code} and remove its ${batch.item_count} item${batch.item_count === 1 ? "" : "s"} from the voucher?\n\nItems in a created voucher will be returned to Packed Ready.`
+        : `Delete ${batch.batch_code} permanently?`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setDeletingBatchId(batch.id);
+    setPageError("");
+    deleteMutation.mutate(batch.id);
   };
 
   return (
@@ -763,6 +802,12 @@ export default function BatchesPage() {
           </div>
         )}
 
+        {pageError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="text-sm text-red-700">{pageError}</p>
+          </div>
+        )}
+
         <div className="hidden sm:block">
           <Table>
             <THead>
@@ -788,9 +833,23 @@ export default function BatchesPage() {
                   <TD className="text-slate">{formatDateTime(batch.dispatch_date)}</TD>
                   <TD>{batch.item_count}</TD>
                   <TD>
-                    <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
-                      Open
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
+                        Open
+                      </Button>
+                      <RoleGate roles={["Admin"]}>
+                        {batch.status === "CREATED" && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleDeleteVoucher(batch)}
+                            disabled={deleteMutation.isPending}
+                          >
+                            {deleteMutation.isPending && deletingBatchId === batch.id ? "Deleting..." : "Delete"}
+                          </Button>
+                        )}
+                      </RoleGate>
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -818,14 +877,29 @@ export default function BatchesPage() {
                 </MobileTableRow>
               </div>
               <div className="mt-3 border-t border-ink/6 pt-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => setSelectedBatchId(batch.id)}
-                >
-                  Open Voucher
-                </Button>
+                <div className="space-y-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setSelectedBatchId(batch.id)}
+                  >
+                    Open Voucher
+                  </Button>
+                  <RoleGate roles={["Admin"]}>
+                    {batch.status === "CREATED" && (
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => handleDeleteVoucher(batch)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        {deleteMutation.isPending && deletingBatchId === batch.id ? "Deleting..." : "Delete Voucher"}
+                      </Button>
+                    )}
+                  </RoleGate>
+                </div>
               </div>
             </MobileTableCard>
           ))}

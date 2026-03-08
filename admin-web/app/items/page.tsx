@@ -432,7 +432,7 @@ export default function ItemsPage() {
   const { request, requestBlob } = useApi();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
-  const [downloadError, setDownloadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [startPosition, setStartPosition] = useState(1);
 
   // Filters
@@ -501,7 +501,27 @@ export default function ItemsPage() {
   const pageJobs = jobs;
 
   const allSelected = pageJobs.length > 0 && pageJobs.every((job) => selectedJobs.includes(job.job_id));
-  const selectedLabelCount = selectedJobs.length;
+  const selectedCount = selectedJobs.length;
+  const selectedJobIds = useMemo(
+    () => jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id),
+    [jobs, selectedJobs]
+  );
+
+  const deleteMutation = useMutation({
+    mutationFn: async (jobIds: string[]) =>
+      request<{ deleted_job_ids: string[]; missing_job_ids: string[] }>("/jobs/bulk", {
+        method: "DELETE",
+        body: JSON.stringify({ job_ids: jobIds })
+      }),
+    onSuccess: () => {
+      setSelectedJobs([]);
+      setActionError("");
+      jobsQuery.refetch();
+    },
+    onError: (error) => {
+      setActionError(error instanceof Error ? error.message : "Unable to delete selected jobs");
+    }
+  });
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -534,9 +554,8 @@ export default function ItemsPage() {
   };
 
   const handleDownloadLabels = async () => {
-    const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
     if (!selectedJobIds.length) return;
-    setDownloadError("");
+    setActionError("");
     try {
       const blob = await requestBlob("/jobs/labels.pdf", {
         method: "POST",
@@ -552,17 +571,16 @@ export default function ItemsPage() {
       window.URL.revokeObjectURL(url);
       jobsQuery.refetch();
     } catch (error) {
-      setDownloadError(error instanceof Error ? error.message : "Unable to download labels");
+      setActionError(error instanceof Error ? error.message : "Unable to download labels");
     }
   };
 
   const handlePrintLabels = async () => {
-    const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
     if (!selectedJobIds.length) return;
-    setDownloadError("");
+    setActionError("");
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      setDownloadError("Pop-up blocked. Allow pop-ups to print labels.");
+      setActionError("Pop-up blocked. Allow pop-ups to print labels.");
       return;
     }
     printWindow.document.write(
@@ -595,14 +613,13 @@ export default function ItemsPage() {
       jobsQuery.refetch();
     } catch (error) {
       printWindow.close();
-      setDownloadError(error instanceof Error ? error.message : "Unable to print labels");
+      setActionError(error instanceof Error ? error.message : "Unable to print labels");
     }
   };
 
   const handleDownloadExcel = async () => {
-    const selectedJobIds = jobs.filter((job) => selectedJobs.includes(job.job_id)).map((job) => job.job_id);
     if (!selectedJobIds.length) return;
-    setDownloadError("");
+    setActionError("");
     try {
       const blob = await requestBlob("/reports/export.xlsx", {
         method: "POST",
@@ -617,7 +634,25 @@ export default function ItemsPage() {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      setDownloadError(error instanceof Error ? error.message : "Unable to download Excel");
+      setActionError(error instanceof Error ? error.message : "Unable to download Excel");
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (!selectedJobIds.length || deleteMutation.isPending) return;
+
+    const preview = selectedJobIds.slice(0, 5).join(", ");
+    const remainingCount = Math.max(selectedJobIds.length - 5, 0);
+    const confirmed = window.confirm(
+      `Delete ${selectedJobIds.length} selected job${selectedJobIds.length === 1 ? "" : "s"} permanently?\n\nThis removes the job records and related history.${preview ? `\n\n${preview}${remainingCount ? ` and ${remainingCount} more` : ""}` : ""}`
+    );
+    if (!confirmed) return;
+
+    setActionError("");
+    try {
+      await deleteMutation.mutateAsync(selectedJobIds);
+    } catch {
+      // Error state is handled by the mutation callback.
     }
   };
 
@@ -670,25 +705,37 @@ export default function ItemsPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadLabels}
-                  disabled={!selectedLabelCount}
+                  disabled={!selectedCount}
                 >
-                  {selectedLabelCount ? `Download ${selectedLabelCount} (A4)` : "Download A4"}
+                  {selectedCount ? `Download ${selectedCount} (A4)` : "Download A4"}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handlePrintLabels}
-                  disabled={!selectedLabelCount}
+                  disabled={!selectedCount}
                 >
-                  {selectedLabelCount ? `Print ${selectedLabelCount} (A4)` : "Print A4"}
+                  {selectedCount ? `Print ${selectedCount} (A4)` : "Print A4"}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadExcel}
-                  disabled={!selectedLabelCount}
+                  disabled={!selectedCount}
                 >
-                  {selectedLabelCount ? `Excel ${selectedLabelCount}` : "Excel"}
+                  {selectedCount ? `Excel ${selectedCount}` : "Excel"}
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={handleDeleteSelected}
+                  disabled={!selectedCount || deleteMutation.isPending}
+                >
+                  {deleteMutation.isPending
+                    ? "Deleting..."
+                    : selectedCount
+                      ? `Delete ${selectedCount}`
+                      : "Delete"}
                 </Button>
               </div>
             </div>
@@ -697,7 +744,7 @@ export default function ItemsPage() {
             </Button>
           </div>
         </div>
-        {downloadError && <p className="text-sm text-red-600">{downloadError}</p>}
+        {actionError && <p className="text-sm text-red-600">{actionError}</p>}
 
         {/* Filters Section */}
         {showFilters && (

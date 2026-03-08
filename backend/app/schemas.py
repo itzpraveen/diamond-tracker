@@ -179,6 +179,15 @@ class LabelSheetRequest(BaseModel):
     start_position: int = Field(default=1, ge=1)
 
 
+class JobBulkDeleteRequest(BaseModel):
+    job_ids: List[str] = Field(default_factory=list)
+
+
+class JobBulkDeleteResponse(BaseModel):
+    deleted_job_ids: List[str] = Field(default_factory=list)
+    missing_job_ids: List[str] = Field(default_factory=list)
+
+
 class UploadResponse(BaseModel):
     key: str
     url: str
@@ -207,6 +216,11 @@ class BatchOut(BaseModel):
     manifest_pdf_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+class BatchDeleteResponse(BaseModel):
+    deleted_batch_id: UUID
+    deleted_batch_code: str
 
 
 class BatchDetail(BatchOut):
