@@ -20,6 +20,7 @@ from app.schemas import (
     BatchOut,
     JobOut,
 )
+from app.utils.diamond import diamond_carat_value
 from app.utils.pdf import generate_manifest_pdf
 from app.utils.roles import select_role_for_action
 from app.utils.transitions import STATUS_HOLDER_ROLE
@@ -160,7 +161,7 @@ def _build_manifest_workbook(batch: Batch):
 
     items = _sorted_batch_items(batch)
     total_weight = sum(float(item.job.approximate_weight or 0) for item in items if item.job)
-    total_carat = sum(float(item.job.diamond_cent or 0) / 100 for item in items if item.job)
+    total_carat = sum(diamond_carat_value(item.job.diamond_cent) or 0 for item in items if item.job)
     total_amount = sum(float(item.job.purchase_value or 0) for item in items if item.job)
 
     wb = Workbook()
@@ -185,10 +186,15 @@ def _build_manifest_workbook(batch: Batch):
         summary.append(list(row))
     for row_idx in range(2, summary.max_row + 1):
         summary.cell(row=row_idx, column=1).font = Font(bold=True)
-    for label in ("Total Weight (g)", "Total Carat (ct)", "Total Value/Amount"):
+    summary_number_formats = {
+        "Total Weight (g)": "#,##0.00",
+        "Total Carat (ct)": "#,##0.###",
+        "Total Value/Amount": "#,##0.00",
+    }
+    for label, number_format in summary_number_formats.items():
         for row_idx in range(2, summary.max_row + 1):
             if summary.cell(row=row_idx, column=1).value == label:
-                summary.cell(row=row_idx, column=2).number_format = "#,##0.00"
+                summary.cell(row=row_idx, column=2).number_format = number_format
                 break
     summary.column_dimensions["A"].width = 22
     summary.column_dimensions["B"].width = 24
@@ -201,7 +207,7 @@ def _build_manifest_workbook(batch: Batch):
 
     for batch_item in items:
         job = batch_item.job
-        item_carat = float(job.diamond_cent or 0) / 100 if job.diamond_cent is not None else None
+        item_carat = diamond_carat_value(job.diamond_cent)
         ws.append([
             job.job_id,
             job.item_description,
@@ -223,8 +229,9 @@ def _build_manifest_workbook(batch: Batch):
             batch_item.added_at.isoformat() if batch_item.added_at else None,
         ])
         current_row = ws.max_row
-        for column_idx in (3, 4, 5, 10):
+        for column_idx in (3, 5, 10):
             ws.cell(row=current_row, column=column_idx).number_format = "#,##0.00"
+        ws.cell(row=current_row, column=4).number_format = "#,##0.###"
 
     ws.auto_filter.ref = f"A1:R{max(ws.max_row, 1)}"
 
@@ -241,7 +248,7 @@ def _build_manifest_workbook(batch: Batch):
         value_cell = ws.cell(row=totals_start_row + offset, column=2, value=value)
         label_cell.font = Font(bold=True)
         value_cell.font = Font(bold=True)
-        value_cell.number_format = "#,##0.00"
+        value_cell.number_format = "#,##0.###" if label == "Total Carat (ct)" else "#,##0.00"
 
     wb.active = wb.index(ws)
     return wb

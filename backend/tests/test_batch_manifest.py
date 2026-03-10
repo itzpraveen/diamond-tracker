@@ -98,3 +98,39 @@ def test_build_manifest_workbook_includes_line_items_and_totals():
     assert totals["Total Weight (g)"] == pytest.approx(4.0)
     assert totals["Total Carat (ct)"] == pytest.approx(0.5)
     assert totals["Total Value/Amount"] == pytest.approx(25000.0)
+
+
+def test_build_manifest_workbook_preserves_decimal_carat_values():
+    batch = SimpleNamespace(
+        batch_code="VCH-2026-03-002",
+        status=BatchStatus.DISPATCHED,
+        factory_name="Polish House",
+        created_at=datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc),
+        dispatch_date=datetime(2026, 3, 2, 10, 0, tzinfo=timezone.utc),
+        expected_return_date=datetime(2026, 3, 16, 18, 0, tzinfo=timezone.utc),
+        item_count=1,
+        items=[
+            SimpleNamespace(
+                job=_make_job(
+                    job_id="JOB-003",
+                    approximate_weight=1.2,
+                    diamond_cent=0.37,
+                    purchase_value=8000,
+                ),
+                added_at=datetime(2026, 3, 2, 10, 30, tzinfo=timezone.utc),
+            ),
+        ],
+    )
+
+    workbook = _build_manifest_workbook(batch)
+
+    summary = workbook["Voucher"]
+    summary_values = {
+        summary.cell(row=row_idx, column=1).value: summary.cell(row=row_idx, column=2).value
+        for row_idx in range(2, summary.max_row + 1)
+    }
+    assert summary_values["Total Carat (ct)"] == pytest.approx(0.37)
+
+    items = workbook["Items"]
+    assert items["D2"].value == pytest.approx(0.37)
+    assert items["D2"].number_format == "#,##0.###"

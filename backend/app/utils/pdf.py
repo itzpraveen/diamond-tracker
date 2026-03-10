@@ -9,12 +9,13 @@ import qrcode
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader, simpleSplit
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
 
 from app.config import get_settings
 from app.models import Batch, ItemJob
+from app.utils.diamond import format_diamond_carat
 
 settings = get_settings()
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "majestic-logo.png"
@@ -125,6 +126,57 @@ def _draw_image(c: canvas.Canvas, image: ImageReader, x: float, y: float, width:
         mask="auto",
     )
 
+
+def _build_label_fields(job: ItemJob, factory_name: str | None) -> tuple[list[dict], list[dict]]:
+    source = job.item_source.value if job.item_source else "-"
+    if job.repair_type:
+        repair_type = job.repair_type.value
+    elif job.item_source:
+        repair_type = "Customer Repair" if job.item_source.value == "Repair" else "Stock Repair"
+    else:
+        repair_type = "-"
+
+    factory_label = _normalize_text(factory_name or job.factory_name)
+    work_narration = _normalize_text(job.work_narration)
+    style_number = _normalize_text(job.style_number)
+    weight = _format_number(job.approximate_weight, "g")
+    diamond = format_diamond_carat(job.diamond_cent)
+    value = _format_number(job.purchase_value)
+    voucher_no = _normalize_text(job.voucher_no)
+    customer = _normalize_text(job.customer_name)
+    description = _normalize_text(job.item_description)
+    created_date = _format_date(job.created_at)
+    target_return = _format_date(job.target_return_date)
+
+    left_fields = [
+        {"label": "Repair Type", "value": repair_type},
+        {"label": "Factory", "value": factory_label},
+        {"label": "Style Number", "value": style_number},
+        {"label": "Narration", "value": work_narration, "multiline": True, "row_span": 2.2},
+        {"label": "Item", "value": description, "multiline": True, "row_span": 1.8},
+        {"label": "Customer", "value": customer},
+    ]
+    right_fields = [
+        {"label": "Created", "value": created_date},
+        {"label": "Target Return", "value": target_return},
+        {"label": "Source", "value": source},
+        {"label": "Weight", "value": weight},
+        {"label": "Diamond", "value": diamond},
+        {"label": "Value", "value": value},
+        {"label": "Voucher No", "value": voucher_no},
+    ]
+    return left_fields, right_fields
+
+
+def _field_units(fields: list[dict]) -> float:
+    return sum(float(field.get("row_span", 1.0)) for field in fields)
+
+
+def _wrap_text(text: str, max_width: float, font_name: str, font_size: float) -> list[str]:
+    lines = [line.strip() for line in simpleSplit(text, font_name, font_size, max_width) if line.strip()]
+    return lines or [text]
+
+
 def _draw_label(
     c: canvas.Canvas,
     job: ItemJob,
@@ -197,33 +249,7 @@ def _draw_label(
     c.setFillColor(job_type_color)
     c.drawRightString(page_width - right_margin, header_y + header_height - 5 * mm, job_type_label)
     c.setFillColor(colors.black)
-    factory_label = _normalize_text(factory_name or job.factory_name)
-    work_narration = _normalize_text(job.work_narration)
-    weight = _format_number(job.approximate_weight, "g")
-    diamond = _format_number(job.diamond_cent, "c")
-    weight_diamond = f"{weight} / {diamond}"
-    value = _format_number(job.purchase_value)
-    voucher_no = _normalize_text(job.voucher_no)
-    customer = _normalize_text(job.customer_name)
-    description = _normalize_text(job.item_description)
-    created_date = _format_date(job.created_at)
-    target_return = _format_date(job.target_return_date)
-
-    left_fields = [
-        ("Repair Type", repair_type),
-        ("Factory", factory_label),
-        ("Narration", work_narration),
-        ("Item", description),
-        ("Customer", customer),
-    ]
-    right_fields = [
-        ("Created", created_date),
-        ("Target Return", target_return),
-        ("Source", source),
-        ("Weight / Diamond", weight_diamond),
-        ("MRP / Value", value),
-        ("Voucher No", voucher_no),
-    ]
+    left_fields, right_fields = _build_label_fields(job, factory_name)
 
     content_width = page_width - left_margin - right_margin
     col_gap = 3 * mm
@@ -235,16 +261,17 @@ def _draw_label(
     photo_box = 22 * mm
     bottom_area_top = left_margin + photo_box + 8 * mm
     info_top = header_y - 2 * mm
-    max_rows = max(len(left_fields), len(right_fields))
     info_height = max(info_top - bottom_area_top, 30 * mm)
-    row_height = info_height / max_rows
-    value_offset = max(2.0 * mm, row_height * 0.55)
+    row_unit = info_height / max(_field_units(left_fields), _field_units(right_fields))
 
-    def draw_field(label: str, value: str, x: float, y: float) -> None:
+    def draw_field(field: dict, x: float, y: float) -> None:
+        label = field["label"]
+        value = field["value"]
+        field_height = row_unit * float(field.get("row_span", 1.0))
         label_font = "Helvetica"
         value_font = "Helvetica-Bold"
-        label_size = min(5.5, row_height * 0.35)
-        value_size = min(7.5, row_height * 0.45)
+        label_size = min(5.4, field_height * 0.28)
+        value_top = y - max(2.0 * mm, field_height * 0.42)
         c.setFillColor(colors.HexColor("#6b7280"))
         c.setFont(label_font, label_size)
         c.drawString(x, y, label.upper())
@@ -252,19 +279,39 @@ def _draw_label(
             c.setFillColor(colors.HexColor("#b91c1c"))
         else:
             c.setFillColor(colors.black)
-        c.setFont(value_font, value_size)
-        fitted = _trim_text(value, col_width, value_font, value_size)
-        c.drawString(x, y - value_offset, fitted)
+        if field.get("multiline"):
+            font_size = min(7.0, field_height * 0.25)
+            min_font_size = 4.6
+            available_height = max(field_height - (y - value_top) - (0.4 * mm), font_size * 1.2)
+            lines = _wrap_text(value, col_width, value_font, font_size)
+            line_height = font_size * 1.15
+            while font_size > min_font_size and len(lines) * line_height > available_height:
+                font_size -= 0.4
+                lines = _wrap_text(value, col_width, value_font, font_size)
+                line_height = font_size * 1.15
+            max_lines = max(1, int(available_height / line_height))
+            if len(lines) > max_lines:
+                remainder = " ".join(lines[max_lines - 1 :])
+                lines = lines[: max_lines - 1] + [_trim_text(remainder, col_width, value_font, font_size)]
+            c.setFont(value_font, font_size)
+            line_y = value_top
+            for line in lines:
+                c.drawString(x, line_y, line)
+                line_y -= line_height
+        else:
+            value_size = min(7.4, field_height * 0.38)
+            c.setFont(value_font, value_size)
+            fitted = _trim_text(value, col_width, value_font, value_size)
+            c.drawString(x, value_top, fitted)
 
-    row_y = info_top
-    for index in range(max_rows):
-        if index < len(left_fields):
-            label, value = left_fields[index]
-            draw_field(label, value, left_x, row_y)
-        if index < len(right_fields):
-            label, value = right_fields[index]
-            draw_field(label, value, right_x, row_y)
-        row_y -= row_height
+    def draw_column(fields: list[dict], x: float) -> None:
+        row_y = info_top
+        for field in fields:
+            draw_field(field, x, row_y)
+            row_y -= row_unit * float(field.get("row_span", 1.0))
+
+    draw_column(left_fields, left_x)
+    draw_column(right_fields, right_x)
 
     c.setStrokeColor(colors.HexColor("#e5e7eb"))
     c.setLineWidth(0.6)
