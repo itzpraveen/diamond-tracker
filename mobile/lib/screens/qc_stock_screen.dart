@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:diamond_tracker_mobile/screens/dispatch_screen.dart';
 import 'package:diamond_tracker_mobile/screens/scan_screen.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_theme.dart';
@@ -83,6 +84,19 @@ class QcStockScreen extends StatelessWidget {
 
           // Actions
           const SectionHeader(title: 'Workflow Actions'),
+
+          _WorkflowCard(
+            icon: Icons.route_outlined,
+            title: 'Bulk Vouchers',
+            subtitle: 'Receive from factory or route QC items in batches',
+            color: MajesticColors.gold,
+            isDark: isDark,
+            onTap: () => Navigator.push(
+              context,
+              MajesticPageRoute(page: const DispatchScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
 
           _WorkflowCard(
             icon: Icons.download_outlined,
@@ -204,7 +218,9 @@ class _WorkflowCard extends StatelessWidget {
               Icon(
                 Icons.qr_code_scanner,
                 size: 20,
-                color: isDark ? MajesticColors.darkTextSecondary : MajesticColors.ink.withValues(alpha: 0.3),
+                color: isDark
+                    ? MajesticColors.darkTextSecondary
+                    : MajesticColors.ink.withValues(alpha: 0.3),
               ),
             ],
           ),

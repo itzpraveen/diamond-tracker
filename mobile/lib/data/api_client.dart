@@ -20,7 +20,8 @@ class ApiClient {
         onError: (error, handler) async {
           final response = error.response;
           final requestOptions = error.requestOptions;
-          if (response?.statusCode != 401 || requestOptions.extra['retried'] == true) {
+          if (response?.statusCode != 401 ||
+              requestOptions.extra['retried'] == true) {
             return handler.next(error);
           }
           if (requestOptions.path.contains('/auth/refresh')) {
@@ -46,7 +47,8 @@ class ApiClient {
               contentType: requestOptions.contentType,
               followRedirects: requestOptions.followRedirects,
               validateStatus: requestOptions.validateStatus,
-              receiveDataWhenStatusError: requestOptions.receiveDataWhenStatusError,
+              receiveDataWhenStatusError:
+                  requestOptions.receiveDataWhenStatusError,
               extra: {...requestOptions.extra, 'retried': true},
             );
             final retryResponse = await _dio.request<dynamic>(
@@ -116,7 +118,8 @@ class ApiClient {
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> scanJob(String jobId, Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> scanJob(
+      String jobId, Map<String, dynamic> payload) async {
     final response = await _dio.post('/jobs/$jobId/scan', data: payload);
     return response.data as Map<String, dynamic>;
   }
@@ -149,7 +152,8 @@ class ApiClient {
     if (status != null) params['status'] = status;
     if (fromDate != null) params['from_date'] = fromDate.toIso8601String();
     if (toDate != null) params['to_date'] = toDate.toIso8601String();
-    final response = await _dio.get('/jobs', queryParameters: params.isEmpty ? null : params);
+    final response = await _dio.get('/jobs',
+        queryParameters: params.isEmpty ? null : params);
     return response.data as List<dynamic>;
   }
 
@@ -193,16 +197,29 @@ class ApiClient {
     int? year,
     int? month,
     String? factoryId,
+    String? voucherType,
+    String? sourceRole,
+    String? destinationRole,
+    String? targetStatus,
   }) async {
     final response = await _dio.post('/batches', data: {
       if (year != null) 'year': year,
       if (month != null) 'month': month,
       if (factoryId != null && factoryId.isNotEmpty) 'factory_id': factoryId,
+      if (voucherType != null && voucherType.isNotEmpty)
+        'voucher_type': voucherType,
+      if (sourceRole != null && sourceRole.isNotEmpty)
+        'source_role': sourceRole,
+      if (destinationRole != null && destinationRole.isNotEmpty)
+        'destination_role': destinationRole,
+      if (targetStatus != null && targetStatus.isNotEmpty)
+        'target_status': targetStatus,
     });
     return response.data as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> createIncident(Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> createIncident(
+      Map<String, dynamic> payload) async {
     final response = await _dio.post('/incidents', data: payload);
     return response.data as Map<String, dynamic>;
   }

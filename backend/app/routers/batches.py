@@ -9,7 +9,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Batch, BatchItem, BatchStatus, Branch, Factory, Incident, ItemJob, Role, Status, StatusEvent
+from app.models import (
+    Batch,
+    BatchItem,
+    BatchStatus,
+    Branch,
+    Factory,
+    Incident,
+    ItemJob,
+    Role,
+    Status,
+    StatusEvent,
+)
 from app.schemas import (
     BatchAddItem,
     BatchArchiveRequest,
@@ -22,8 +33,10 @@ from app.schemas import (
 )
 from app.utils.diamond import diamond_carat_value
 from app.utils.pdf import generate_manifest_pdf
+from app.utils.diamond import diamond_carat_value
 from app.utils.roles import select_role_for_action
 from app.utils.transitions import STATUS_HOLDER_ROLE
+from app.utils.voucher_routes import batch_route, ensure_operator_can_create_route, get_voucher_route
 from app.utils.vouchers import format_voucher_code, next_voucher_sequence
 
 router = APIRouter(prefix="/batches", tags=["batches"])
@@ -173,6 +186,10 @@ def _build_manifest_workbook(batch: Batch):
     summary_rows = [
         ("Voucher Code", batch.batch_code),
         ("Status", batch.status.value if batch.status else None),
+        ("Voucher Type", getattr(batch, "voucher_type", None)),
+        ("Source", getattr(batch, "source_role", None)),
+        ("Destination", getattr(batch, "destination_role", None)),
+        ("Target Status", getattr(batch, "target_status", None)),
         ("Factory", batch.factory_name),
         ("Created At", batch.created_at.isoformat() if batch.created_at else None),
         ("Dispatch Date", batch.dispatch_date.isoformat() if batch.dispatch_date else None),
@@ -301,7 +318,11 @@ def _get_empty_batch_cleanup_candidates(db: Session) -> tuple[list[tuple[Batch, 
 
 
 @router.post("", response_model=BatchOut)
-def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH, Role.ADMIN)), db: Session = Depends(get_db)):
+def create_batch(
+    payload: BatchCreate,
+    user=Depends(require_roles(Role.DISPATCH, Role.FACTORY, Role.QC_STOCK, Role.ADMIN)),
+    db: Session = Depends(get_db),
+):
     now = datetime.now(timezone.utc)
     year = payload.year or now.year
     month = payload.month or now.month
@@ -326,6 +347,16 @@ def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH,
     factory_id = None
     if payload.factory_id:
         factory_id = _get_factory_by_uuid(db, payload.factory_id).id
+    target_status = payload.target_status or Status.DISPATCHED_TO_FACTORY
+    route = get_voucher_route(target_status)
+    ensure_operator_can_create_route(user.roles, route)
+    voucher_type = payload.voucher_type or route.voucher_type
+    source_role = payload.source_role or route.source_role
+    destination_role = payload.destination_role or route.destination_role
+    if voucher_type != route.voucher_type:
+        raise HTTPException(status_code=400, detail="Voucher type does not match the selected route")
+    if source_role != route.source_role or destination_role != route.destination_role:
+        raise HTTPException(status_code=400, detail="Source and destination do not match the selected route")
 
     branch = _get_default_branch(db)
     batch = Batch(
@@ -335,6 +366,10 @@ def create_batch(payload: BatchCreate, user=Depends(require_roles(Role.DISPATCH,
         factory_id=factory_id,
         expected_return_date=payload.expected_return_date,
         status=BatchStatus.CREATED,
+        voucher_type=voucher_type.value,
+        source_role=source_role.value,
+        destination_role=destination_role.value,
+        target_status=target_status.value,
     )
     db.add(batch)
     db.commit()
@@ -585,7 +620,11 @@ def delete_batch(
 
 
 @router.get("/{batch_id}/manifest.pdf")
-def get_manifest(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
+def get_manifest(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK)),
+):
     batch = _get_batch(db, batch_id, with_items=True, with_factory=True)
     jobs = [item.job for item in batch.items]
     pdf_bytes = generate_manifest_pdf(batch, jobs)
@@ -593,7 +632,11 @@ def get_manifest(batch_id: str, db: Session = Depends(get_db), user=Depends(requ
 
 
 @router.get("/{batch_id}/manifest.xlsx")
-def get_manifest_xlsx(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
+def get_manifest_xlsx(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK)),
+):
     batch = _get_batch(db, batch_id, with_items=True, with_factory=True)
     wb = _build_manifest_workbook(batch)
 
@@ -610,11 +653,17 @@ def get_manifest_xlsx(batch_id: str, db: Session = Depends(get_db), user=Depends
 
 
 @router.post("/{batch_id}/close", response_model=BatchOut)
-def close_batch(batch_id: str, db: Session = Depends(get_db), user=Depends(require_roles(Role.ADMIN, Role.DISPATCH))):
+def close_batch(
+    batch_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK)),
+):
     batch = _get_batch(db, batch_id)
     _ensure_batch_not_archived(batch)
     jobs = [item.job for item in batch.items]
+    route = batch_route(batch)
     allowed_statuses = {
+        route.target_status,
         Status.RECEIVED_AT_SHOP,
         Status.ADDED_TO_STOCK,
         Status.HANDED_TO_DELIVERY,

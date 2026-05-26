@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 
 const String dispatchBatchRequiredMessage =
-    'Dispatch scan requires a voucher. Open Dispatch Center and scan from there.';
+    'Dispatch scan requires a voucher. Open Voucher Center and scan from there.';
 const String batchRequiredBadgeLabel = 'Voucher Required';
 
 String? scanBlockingReason(

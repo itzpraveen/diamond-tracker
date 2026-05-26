@@ -720,7 +720,7 @@ class ScanResultSheet extends StatelessWidget {
                         onPressed: onOpenDispatchCenter,
                         icon:
                             const Icon(Icons.local_shipping_outlined, size: 18),
-                        label: const Text('Open Dispatch Center'),
+                        label: const Text('Open Voucher Center'),
                       ),
                     ),
                     const SizedBox(width: 12),

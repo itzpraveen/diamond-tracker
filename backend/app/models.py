@@ -66,6 +66,12 @@ class BatchStatus(str, enum.Enum):
     CLOSED = "CLOSED"
 
 
+class VoucherType(str, enum.Enum):
+    ISSUE = "ISSUE"
+    RECEIPT = "RECEIPT"
+    MOVEMENT = "MOVEMENT"
+
+
 class IncidentType(str, enum.Enum):
     StickerMismatch = "StickerMismatch"
     MissingItem = "MissingItem"
@@ -215,6 +221,10 @@ class Batch(Base):
     status: Mapped[BatchStatus] = mapped_column(BATCH_STATUS_ENUM, default=BatchStatus.CREATED)
     item_count: Mapped[int] = mapped_column(Integer, default=0)
     manifest_pdf_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    voucher_type: Mapped[str] = mapped_column(String(16), default=VoucherType.ISSUE.value, nullable=False)
+    source_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    destination_role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

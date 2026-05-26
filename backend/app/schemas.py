@@ -4,7 +4,16 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models import BatchStatus, IncidentStatus, IncidentType, ItemSource, RepairType, Role, Status
+from app.models import (
+    BatchStatus,
+    IncidentStatus,
+    IncidentType,
+    ItemSource,
+    RepairType,
+    Role,
+    Status,
+    VoucherType,
+)
 
 
 class TokenResponse(BaseModel):
@@ -214,6 +223,10 @@ class BatchCreate(BaseModel):
     month: Optional[int] = None
     factory_id: Optional[UUID] = None
     expected_return_date: Optional[datetime] = None
+    voucher_type: Optional[VoucherType] = None
+    source_role: Optional[Role] = None
+    destination_role: Optional[Role] = None
+    target_status: Optional[Status] = None
 
 
 class BatchOut(BaseModel):
@@ -229,6 +242,10 @@ class BatchOut(BaseModel):
     status: BatchStatus
     item_count: int
     manifest_pdf_url: Optional[str] = None
+    voucher_type: VoucherType = VoucherType.ISSUE
+    source_role: Optional[Role] = None
+    destination_role: Optional[Role] = None
+    target_status: Optional[Status] = None
     is_archived: bool
     archived_at: Optional[datetime] = None
     archived_by: Optional[UUID] = None

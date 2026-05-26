@@ -52,6 +52,7 @@ from app.utils.transitions import (
     role_can_transition,
 )
 from app.utils.roles import select_role_for_action, select_role_for_status
+from app.utils.voucher_routes import ensure_batch_matches_target
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -338,6 +339,38 @@ def _get_factory_by_uuid(db: Session, factory_id: uuid.UUID) -> Factory:
     if not factory.is_active:
         raise HTTPException(status_code=400, detail="Factory is inactive")
     return factory
+
+
+def _attach_job_to_batch_for_scan(
+    db: Session,
+    *,
+    batch: Batch,
+    job: ItemJob,
+    target_status: Status,
+    factory_id: uuid.UUID | None,
+) -> None:
+    route = ensure_batch_matches_target(batch, target_status)
+    if route.requires_factory:
+        if factory_id:
+            factory = _get_factory_by_uuid(db, factory_id)
+            if batch.factory_id and batch.factory_id != factory.id:
+                raise HTTPException(status_code=400, detail="Voucher factory does not match")
+            batch.factory_id = factory.id
+        if not batch.factory_id:
+            raise HTTPException(status_code=400, detail="Factory id required for this voucher route")
+        if job.factory_id and job.factory_id != batch.factory_id:
+            raise HTTPException(status_code=400, detail="Job factory does not match voucher factory")
+        job.factory_id = batch.factory_id
+
+    existing_item = (
+        db.query(BatchItem)
+        .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
+        .first()
+    )
+    if existing_item:
+        raise HTTPException(status_code=400, detail="Item already in voucher")
+    db.add(BatchItem(batch_id=batch.id, job_id=job.id))
+    batch.item_count += 1
 
 
 @router.post("", response_model=JobOut)
@@ -765,52 +798,25 @@ def scan_job(job_id: str, payload: JobScanRequest, db: Session = Depends(get_db)
         if not any(role_can_transition(role, target_status) for role in user.roles):
             raise HTTPException(status_code=403, detail="Role cannot perform this transition")
 
-    if target_status == Status.DISPATCHED_TO_FACTORY and not override_needed:
-        if not payload.batch_id:
-            raise HTTPException(status_code=400, detail="Voucher id required for dispatch")
+    if payload.batch_id:
         batch = _get_batch_by_uuid(db, payload.batch_id)
-        if payload.factory_id:
-            factory = _get_factory_by_uuid(db, payload.factory_id)
-            if batch.factory_id and batch.factory_id != factory.id:
-                raise HTTPException(status_code=400, detail="Voucher factory does not match")
-            batch.factory_id = factory.id
-        elif not batch.factory_id:
-            raise HTTPException(status_code=400, detail="Factory id required for dispatch")
-        existing_item = (
-            db.query(BatchItem)
-            .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
-            .first()
+        _attach_job_to_batch_for_scan(
+            db,
+            batch=batch,
+            job=job,
+            target_status=target_status,
+            factory_id=payload.factory_id,
         )
-        if existing_item:
-            raise HTTPException(status_code=400, detail="Item already in voucher")
-        db.add(BatchItem(batch_id=batch.id, job_id=job.id))
-        batch.item_count += 1
-        job.factory_id = batch.factory_id
-    elif target_status == Status.DISPATCHED_TO_FACTORY and payload.batch_id:
-        batch = _get_batch_by_uuid(db, payload.batch_id)
-        if payload.factory_id:
-            factory = _get_factory_by_uuid(db, payload.factory_id)
-            if batch.factory_id and batch.factory_id != factory.id:
-                raise HTTPException(status_code=400, detail="Voucher factory does not match")
-            batch.factory_id = factory.id
-        existing_item = (
-            db.query(BatchItem)
-            .filter(BatchItem.batch_id == batch.id, BatchItem.job_id == job.id)
-            .first()
-        )
-        if not existing_item:
-            db.add(BatchItem(batch_id=batch.id, job_id=job.id))
-            batch.item_count += 1
-        if batch.factory_id:
-            job.factory_id = batch.factory_id
+    elif target_status == Status.DISPATCHED_TO_FACTORY and not override_needed:
+        raise HTTPException(status_code=400, detail="Voucher id required for dispatch")
 
     job.current_status = target_status
     job.current_holder_role = STATUS_HOLDER_ROLE[target_status]
     job.current_holder_user_id = user.id
     job.last_scan_at = datetime.now(timezone.utc)
     remarks = payload.remarks
-    if target_status == Status.DISPATCHED_TO_FACTORY and batch:
-        remarks = remarks or f"Voucher dispatch {batch.batch_code}"
+    if batch:
+        remarks = remarks or f"Voucher {batch.batch_code} scan to {target_status.value}"
 
     event = StatusEvent(
         job_id=job.id,

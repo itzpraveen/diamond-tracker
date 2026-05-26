@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:diamond_tracker_mobile/screens/dispatch_screen.dart';
 import 'package:diamond_tracker_mobile/screens/scan_screen.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_theme.dart';
@@ -84,6 +85,18 @@ class FactoryScreen extends StatelessWidget {
 
           // Action cards
           const SectionHeader(title: 'Actions'),
+          _ActionTile(
+            icon: Icons.route_outlined,
+            title: 'Bulk Vouchers',
+            subtitle: 'Receive factory batches through one voucher',
+            color: MajesticColors.gold,
+            isDark: isDark,
+            onTap: () => Navigator.push(
+              context,
+              MajesticPageRoute(page: const DispatchScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
           _ActionTile(
             icon: Icons.download_outlined,
             title: 'Receive Item',

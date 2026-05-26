@@ -14,6 +14,7 @@ import 'package:diamond_tracker_mobile/screens/packing_screen.dart';
 import 'package:diamond_tracker_mobile/screens/purchase_entry_screen.dart';
 import 'package:diamond_tracker_mobile/screens/qc_stock_screen.dart';
 import 'package:diamond_tracker_mobile/screens/scan_screen.dart';
+import 'package:diamond_tracker_mobile/screens/scan_logic.dart';
 import 'package:diamond_tracker_mobile/state/auth_controller.dart';
 import 'package:diamond_tracker_mobile/state/providers.dart';
 import 'package:diamond_tracker_mobile/ui/majestic_scaffold.dart';
@@ -29,8 +30,10 @@ class DashboardScreen extends ConsumerStatefulWidget {
   ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+class _DashboardScreenState extends ConsumerState<DashboardScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const Duration _metricsTimeout = Duration(seconds: 20);
+  static const Duration _autoSyncCooldown = Duration(minutes: 1);
 
   bool _loadingMetrics = false;
   bool _syncing = false;
@@ -39,11 +42,34 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   int? _offlineJobs;
   int? _pendingScans;
   final Map<String, int?> _metricCounts = {};
+  DateTime? _lastAutoSyncAttempt;
+
+  late AnimationController _staggerController;
 
   @override
   void initState() {
     super.initState();
-    _loadMetrics();
+    WidgetsBinding.instance.addObserver(this);
+    _staggerController = AnimationController(
+      duration: const Duration(milliseconds: 1000),
+      vsync: this,
+    );
+    _staggerController.forward();
+    Future.microtask(() => _refreshDashboard(attemptAutoSync: true));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _staggerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshDashboard(attemptAutoSync: true));
+    }
   }
 
   @override
@@ -72,7 +98,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         // Logout
         IconButton(
           icon: const Icon(Icons.logout),
-          onPressed: () => ref.read(authControllerProvider.notifier).logout(),
+          onPressed: () => _confirmLogout(context),
           tooltip: 'Sign out',
         ),
       ],
@@ -84,92 +110,131 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             // Header card
-            _HeaderCard(
-              roleLabel: roleLabel,
-              lastRefresh: _lastRefresh,
-              isLoading: _loadingMetrics,
-              onRefresh: _loadMetrics,
-              isDark: isDark,
+            _staggeredItem(
+              index: 0,
+              total: 5,
+              child: _HeaderCard(
+                roleLabel: roleLabel,
+                lastRefresh: _lastRefresh,
+                isLoading: _loadingMetrics,
+                onRefresh: _loadMetrics,
+                isDark: isDark,
+              ),
             ),
             const SizedBox(height: 20),
 
             // Metrics section
-            SectionHeader(
-              key: const Key('dashboard_workload'),
-              title: 'Workload',
-              action: _loadError != null ? 'Retry' : null,
-              onActionTap: _loadError != null ? _loadMetrics : null,
-            ),
-            if (_loadError != null)
-              _ErrorCard(message: _loadError!, isDark: isDark)
-            else
-              MetricGrid(
-                metrics: metrics.map((metric) {
-                  return MetricCardData(
-                    label: metric.label,
-                    value: _metricCounts[metric.label]?.toString(),
-                    subtitle: statusLabel(metric.status),
-                    color: metric.color ?? statusColor(metric.status),
-                  );
-                }).toList(),
-                isLoading: _loadingMetrics,
+            _staggeredItem(
+              index: 1,
+              total: 5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SectionHeader(
+                    key: const Key('dashboard_workload'),
+                    title: 'Workload',
+                    action: _loadError != null ? 'Retry' : null,
+                    onActionTap: _loadError != null ? _loadMetrics : null,
+                  ),
+                  if (_loadError != null)
+                    _ErrorCard(message: _loadError!, isDark: isDark)
+                  else
+                    MetricGrid(
+                      metrics: metrics.map((metric) {
+                        return MetricCardData(
+                          label: metric.label,
+                          value: _metricCounts[metric.label]?.toString(),
+                          subtitle: statusLabel(metric.status),
+                          icon: metric.icon,
+                          color: metric.color ?? statusColor(metric.status),
+                        );
+                      }).toList(),
+                      isLoading: _loadingMetrics,
+                    ),
+                ],
               ),
+            ),
             const SizedBox(height: 24),
 
             // Sync status
-            SyncStatusCard(
-              key: const Key('dashboard_sync_status'),
-              offlineJobs: _offlineJobs,
-              pendingScans: _pendingScans,
-              onSync: _syncQueue,
-              isSyncing: _syncing,
-              lastSyncTime: _lastRefresh,
+            _staggeredItem(
+              index: 2,
+              total: 5,
+              child: SyncStatusCard(
+                key: const Key('dashboard_sync_status'),
+                offlineJobs: _offlineJobs,
+                pendingScans: _pendingScans,
+                onSync: _syncQueue,
+                isSyncing: _syncing,
+                lastSyncTime: _lastRefresh,
+              ),
             ),
             const SizedBox(height: 24),
 
             // Quick actions
-            const SectionHeader(title: 'Quick Actions'),
-            ActionCard(
-              title: 'Quick Scan',
-              subtitle: 'Scan to move to next status',
-              icon: Icons.qr_code_scanner,
-              isPrimary: true,
-              onTap: () => _navigateTo(
-                context,
-                roles.length == 1 && roles.contains(Role.dispatch)
-                    ? const DispatchScreen()
-                    : const ScanScreen(),
+            _staggeredItem(
+              index: 3,
+              total: 5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionHeader(title: 'Quick Actions'),
+                  ActionCard(
+                    title: 'Quick Scan',
+                    subtitle: roles.contains(Role.dispatch) ||
+                            roles.contains(Role.factory) ||
+                            roles.contains(Role.qcStock) ||
+                            roles.contains(Role.admin)
+                        ? 'Open Voucher Center for bulk scanning'
+                        : 'Scan to move to next status',
+                    icon: Icons.qr_code_scanner,
+                    isPrimary: true,
+                    onTap: () => _navigateTo(
+                      context,
+                      roles.contains(Role.dispatch) ||
+                              roles.contains(Role.factory) ||
+                              roles.contains(Role.qcStock) ||
+                              roles.contains(Role.admin)
+                          ? const DispatchScreen()
+                          : const ScanScreen(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ActionCard(
+                    title: 'Lookup / Search',
+                    subtitle: 'Find job details and timeline',
+                    icon: Icons.search,
+                    onTap: () => _navigateTo(context, const LookupScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                  ActionCard(
+                    title: 'Report Incident',
+                    subtitle: 'Mismatch, damage, or duplicate',
+                    icon: Icons.report_gmailerrorred,
+                    iconColor: MajesticColors.warning,
+                    onTap: () => _navigateTo(context, const IncidentScreen()),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            ActionCard(
-              title: 'Lookup / Search',
-              subtitle: 'Find job details and timeline',
-              icon: Icons.search,
-              onTap: () => _navigateTo(context, const LookupScreen()),
-            ),
-            const SizedBox(height: 12),
-            ActionCard(
-              title: 'Report Incident',
-              subtitle: 'Mismatch, damage, or duplicate',
-              icon: Icons.report_gmailerrorred,
-              iconColor: MajesticColors.warning,
-              onTap: () => _navigateTo(context, const IncidentScreen()),
             ),
             const SizedBox(height: 24),
 
             // Role-specific actions
-            if (roleActions.isNotEmpty) ...[
-              const SectionHeader(title: 'Your Workspace'),
-              Column(
-                children: [
-                  for (final action in roleActions) ...[
-                    action,
-                    const SizedBox(height: 12),
-                  ]
-                ],
+            if (roleActions.isNotEmpty)
+              _staggeredItem(
+                index: 4,
+                total: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionHeader(title: 'Your Workspace'),
+                    for (final action in roleActions) ...[
+                      action,
+                      const SizedBox(height: 12),
+                    ],
+                  ],
+                ),
               ),
-            ],
             const SizedBox(height: 20),
           ],
         ),
@@ -180,7 +245,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   List<Widget> _roleActions(BuildContext context, List<Role> roles) {
     final actions = <Widget>[];
     final seen = <Role>{};
+    final hasVoucherWorkspace = roles.contains(Role.dispatch) ||
+        roles.contains(Role.factory) ||
+        roles.contains(Role.qcStock) ||
+        roles.contains(Role.admin);
+    if (hasVoucherWorkspace) {
+      actions.add(
+        RoleActionButton(
+          title: 'Voucher Center',
+          subtitle: 'Bulk issue, receive, and route items',
+          icon: Icons.route_outlined,
+          onTap: () => _navigateTo(context, const DispatchScreen()),
+        ),
+      );
+    }
     for (final role in roles) {
+      if (role == Role.dispatch || role == Role.admin) {
+        continue;
+      }
       if (seen.contains(role)) continue;
       seen.add(role);
       final action = _roleAction(context, role);
@@ -209,12 +291,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           onTap: () => _navigateTo(context, const PackingScreen()),
         );
       case Role.dispatch:
-        return RoleActionButton(
-          title: 'Dispatch Center',
-          subtitle: 'Manage vouchers and dispatch',
-          icon: Icons.local_shipping_outlined,
-          onTap: () => _navigateTo(context, const DispatchScreen()),
-        );
+        return null;
       case Role.factory:
         return RoleActionButton(
           title: 'Factory Workflow',
@@ -246,6 +323,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     Navigator.push(context, MajesticPageRoute(page: screen));
   }
 
+  Widget _staggeredItem(
+      {required int index, required int total, required Widget child}) {
+    final start = (index / total).clamp(0.0, 1.0);
+    final end = ((index + 1.5) / total).clamp(0.0, 1.0);
+    final curve = Interval(start, end, curve: Curves.easeOutCubic);
+
+    final fadeAnim = CurvedAnimation(parent: _staggerController, curve: curve);
+    final slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(fadeAnim);
+
+    return FadeTransition(
+      opacity: fadeAnim,
+      child: SlideTransition(
+        position: slideAnim,
+        child: child,
+      ),
+    );
+  }
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final confirmed = await showMajesticDialog<bool>(
+      context: context,
+      title: 'Sign Out',
+      content: const Text(
+        'Are you sure you want to sign out? Any unsynced data will be preserved for your next session.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Sign Out'),
+        ),
+      ],
+    );
+    if (confirmed == true && mounted) {
+      ref.read(authControllerProvider.notifier).logout();
+    }
+  }
+
   Future<void> _loadMetrics() async {
     setState(() {
       _loadingMetrics = true;
@@ -257,21 +378,40 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final api = ref.read(apiClientProvider);
     try {
       final offlineJobs = await db.offlineJobCount().timeout(_metricsTimeout);
-      final pendingScans = await db.pendingQueueCount().timeout(_metricsTimeout);
+      final pendingScans =
+          await db.pendingQueueCount().timeout(_metricsTimeout);
       final entries = <MapEntry<String, int?>>[];
-      Future<void> addMetricEntries(List<_MetricSpec> group, DateTime? fromDate) async {
+      String? metricsFailureMessage;
+      Future<void> addMetricEntries(
+          List<_MetricSpec> group, DateTime? fromDate) async {
         if (group.isEmpty) return;
         try {
-          final statuses = group.map((metric) => metric.status).toSet().toList();
+          final statuses =
+              group.map((metric) => metric.status).toSet().toList();
           final counts = await api
               .jobMetrics(statuses: statuses, fromDate: fromDate)
               .timeout(_metricsTimeout);
           for (final metric in group) {
-            entries.add(MapEntry<String, int?>(metric.label, counts[metric.status] ?? 0));
+            entries.add(MapEntry<String, int?>(
+                metric.label, counts[metric.status] ?? 0));
           }
-        } catch (_) {
+        } catch (error) {
+          if (isUnauthorizedError(error)) {
+            rethrow;
+          }
+          metricsFailureMessage ??= readableApiError(error);
+          // Fallback: query each metric independently. This avoids list-query
+          // serialization issues where grouped status filters can fail.
           for (final metric in group) {
-            entries.add(MapEntry<String, int?>(metric.label, null));
+            try {
+              final singleCounts = await api.jobMetrics(
+                  statuses: [metric.status],
+                  fromDate: fromDate).timeout(_metricsTimeout);
+              entries.add(MapEntry<String, int?>(
+                  metric.label, singleCounts[metric.status] ?? 0));
+            } catch (_) {
+              entries.add(MapEntry<String, int?>(metric.label, null));
+            }
           }
         }
       }
@@ -287,6 +427,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _metricCounts
           ..clear()
           ..addEntries(entries);
+        if (entries.isNotEmpty &&
+            entries.every((entry) => entry.value == null)) {
+          _loadError =
+              'Metrics unavailable: ${metricsFailureMessage ?? 'request failed'}';
+        } else {
+          _loadError = null;
+        }
         _lastRefresh = DateTime.now();
       });
     } on TimeoutException {
@@ -294,7 +441,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       setState(() => _loadError = 'Refresh timed out. Pull to retry.');
     } catch (error) {
       if (!mounted) return;
-      setState(() => _loadError = 'Failed to refresh: $error');
+      if (isUnauthorizedError(error)) {
+        await ref.read(authControllerProvider.notifier).logout();
+        return;
+      }
+      setState(
+          () => _loadError = 'Failed to refresh: ${readableApiError(error)}');
     } finally {
       if (mounted) {
         setState(() => _loadingMetrics = false);
@@ -302,23 +454,55 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
-  Future<void> _syncQueue() async {
+  Future<void> _refreshDashboard({bool attemptAutoSync = false}) async {
+    await _loadMetrics();
+    if (!attemptAutoSync || !mounted || _syncing) {
+      return;
+    }
+    final queuedItems = (_offlineJobs ?? 0) + (_pendingScans ?? 0);
+    if (queuedItems == 0) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastAutoSyncAttempt != null &&
+        now.difference(_lastAutoSyncAttempt!) < _autoSyncCooldown) {
+      return;
+    }
+    _lastAutoSyncAttempt = now;
+    await _syncQueue(triggeredByResume: true);
+  }
+
+  Future<void> _syncQueue({bool triggeredByResume = false}) async {
+    if (_syncing) {
+      return;
+    }
     setState(() => _syncing = true);
     try {
       final report = await ref.read(syncServiceProvider).syncAll();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Sync complete: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures',
+      final syncedAnything = report.jobsSynced > 0 ||
+          report.scansSynced > 0 ||
+          report.failures > 0;
+      if (!triggeredByResume || syncedAnything) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              triggeredByResume
+                  ? 'Auto-sync: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures'
+                  : 'Sync complete: ${report.jobsSynced} jobs, ${report.scansSynced} scans, ${report.failures} failures',
+            ),
           ),
-        ),
-      );
+        );
+      }
       await _loadMetrics();
     } catch (error) {
       if (!mounted) return;
+      if (isUnauthorizedError(error)) {
+        await ref.read(authControllerProvider.notifier).logout();
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sync failed: $error')),
+        SnackBar(content: Text('Sync failed: ${readableApiError(error)}')),
       );
     } finally {
       if (mounted) {
@@ -346,41 +530,92 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     switch (role) {
       case Role.purchase:
         return const [
-          _MetricSpec(label: 'Today intake', status: 'PURCHASED', todayOnly: true, color: MajesticColors.gold),
-          _MetricSpec(label: 'Awaiting pack', status: 'PURCHASED'),
+          _MetricSpec(
+              label: 'Today intake',
+              status: 'PURCHASED',
+              todayOnly: true,
+              color: MajesticColors.gold,
+              icon: Icons.add_circle_outline),
+          _MetricSpec(
+              label: 'Awaiting pack',
+              status: 'PURCHASED',
+              icon: Icons.inventory_2_outlined),
         ];
       case Role.packing:
         return const [
-          _MetricSpec(label: 'Awaiting pack', status: 'PURCHASED'),
-          _MetricSpec(label: 'Ready for delivery', status: 'PACKED_READY'),
+          _MetricSpec(
+              label: 'Awaiting pack',
+              status: 'PURCHASED',
+              icon: Icons.inventory_2_outlined),
+          _MetricSpec(
+              label: 'Ready for delivery',
+              status: 'PACKED_READY',
+              icon: Icons.check_circle_outline),
         ];
       case Role.dispatch:
         return const [
-          _MetricSpec(label: 'Ready for delivery', status: 'PACKED_READY'),
-          _MetricSpec(label: 'Dispatched', status: 'DISPATCHED_TO_FACTORY'),
+          _MetricSpec(
+              label: 'Ready for delivery',
+              status: 'PACKED_READY',
+              icon: Icons.check_circle_outline),
+          _MetricSpec(
+              label: 'Dispatched',
+              status: 'DISPATCHED_TO_FACTORY',
+              icon: Icons.local_shipping_outlined),
         ];
       case Role.factory:
         return const [
-          _MetricSpec(label: 'Inbound', status: 'DISPATCHED_TO_FACTORY'),
-          _MetricSpec(label: 'In workshop', status: 'RECEIVED_AT_FACTORY'),
+          _MetricSpec(
+              label: 'Inbound',
+              status: 'DISPATCHED_TO_FACTORY',
+              icon: Icons.move_to_inbox_outlined),
+          _MetricSpec(
+              label: 'In workshop',
+              status: 'RECEIVED_AT_FACTORY',
+              icon: Icons.precision_manufacturing_outlined),
         ];
       case Role.qcStock:
         return const [
-          _MetricSpec(label: 'Awaiting QC', status: 'RETURNED_FROM_FACTORY'),
-          _MetricSpec(label: 'At shop', status: 'RECEIVED_AT_SHOP'),
-          _MetricSpec(label: 'In stock', status: 'ADDED_TO_STOCK'),
+          _MetricSpec(
+              label: 'Awaiting QC',
+              status: 'RETURNED_FROM_FACTORY',
+              icon: Icons.rule_outlined),
+          _MetricSpec(
+              label: 'At shop',
+              status: 'RECEIVED_AT_SHOP',
+              icon: Icons.storefront_outlined),
+          _MetricSpec(
+              label: 'In stock', status: 'ADDED_TO_STOCK', icon: Icons.shelves),
         ];
       case Role.delivery:
         return const [
-          _MetricSpec(label: 'Out for delivery', status: 'HANDED_TO_DELIVERY'),
-          _MetricSpec(label: 'Delivered', status: 'DELIVERED_TO_CUSTOMER'),
+          _MetricSpec(
+              label: 'Out for delivery',
+              status: 'HANDED_TO_DELIVERY',
+              icon: Icons.delivery_dining_outlined),
+          _MetricSpec(
+              label: 'Delivered',
+              status: 'DELIVERED_TO_CUSTOMER',
+              icon: Icons.task_alt),
         ];
       case Role.admin:
         return const [
-          _MetricSpec(label: 'Ready for delivery', status: 'PACKED_READY'),
-          _MetricSpec(label: 'At factory', status: 'RECEIVED_AT_FACTORY'),
-          _MetricSpec(label: 'Awaiting QC', status: 'RETURNED_FROM_FACTORY'),
-          _MetricSpec(label: 'Delivering', status: 'HANDED_TO_DELIVERY'),
+          _MetricSpec(
+              label: 'Ready for delivery',
+              status: 'PACKED_READY',
+              icon: Icons.check_circle_outline),
+          _MetricSpec(
+              label: 'At factory',
+              status: 'RECEIVED_AT_FACTORY',
+              icon: Icons.factory_outlined),
+          _MetricSpec(
+              label: 'Awaiting QC',
+              status: 'RETURNED_FROM_FACTORY',
+              icon: Icons.rule_outlined),
+          _MetricSpec(
+              label: 'Delivering',
+              status: 'HANDED_TO_DELIVERY',
+              icon: Icons.delivery_dining_outlined),
         ];
     }
   }
@@ -482,7 +717,8 @@ class _HeaderCard extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: isDark
                             ? MajesticColors.gold.withValues(alpha: 0.2)
@@ -494,7 +730,9 @@ class _HeaderCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: isDark ? MajesticColors.gold : MajesticColors.forest,
+                          color: isDark
+                              ? MajesticColors.gold
+                              : MajesticColors.forest,
                         ),
                       ),
                     ),
@@ -528,12 +766,16 @@ class _HeaderCard extends StatelessWidget {
                         height: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: isDark ? MajesticColors.gold : MajesticColors.forest,
+                          color: isDark
+                              ? MajesticColors.gold
+                              : MajesticColors.forest,
                         ),
                       )
                     : Icon(
                         Icons.refresh,
-                        color: isDark ? MajesticColors.gold : MajesticColors.forest,
+                        color: isDark
+                            ? MajesticColors.gold
+                            : MajesticColors.forest,
                       ),
               ),
             ),
@@ -589,10 +831,12 @@ class _MetricSpec {
     required this.status,
     this.todayOnly = false,
     this.color,
+    this.icon,
   });
 
   final String label;
   final String status;
   final bool todayOnly;
   final Color? color;
+  final IconData? icon;
 }

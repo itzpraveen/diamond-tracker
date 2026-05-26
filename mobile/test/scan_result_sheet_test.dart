@@ -57,9 +57,9 @@ void main() {
     expect(find.text(dispatchBatchRequiredMessage), findsOneWidget);
     expect(find.text(batchRequiredBadgeLabel), findsOneWidget);
     expect(find.widgetWithText(ElevatedButton, 'Confirm'), findsNothing);
-    expect(find.text('Open Dispatch Center'), findsOneWidget);
+    expect(find.text('Open Voucher Center'), findsOneWidget);
 
-    await tester.tap(find.text('Open Dispatch Center'));
+    await tester.tap(find.text('Open Voucher Center'));
     await tester.pumpAndSettle();
     expect(openDispatchCalls, 1);
     expect(confirmCalls, 0);

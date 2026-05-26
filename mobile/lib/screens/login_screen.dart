@@ -129,6 +129,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     label: 'Username',
                                     prefixIcon: Icons.person_outline,
                                     focusNode: _usernameFocus,
+                                    autofocus: true,
                                     textInputAction: TextInputAction.next,
                                     onSubmitted: (_) => _passwordFocus.requestFocus(),
                                     validator: (value) {

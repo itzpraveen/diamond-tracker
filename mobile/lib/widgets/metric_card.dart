@@ -84,19 +84,7 @@ class MetricCard extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               if (isLoading)
-                SizedBox(
-                  height: 28,
-                  child: Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: effectiveColor,
-                      ),
-                    ),
-                  ),
-                )
+                _ShimmerPlaceholder(color: effectiveColor, isDark: isDark)
               else
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
@@ -441,6 +429,82 @@ class _QueueMetric extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ShimmerPlaceholder extends StatefulWidget {
+  const _ShimmerPlaceholder({required this.color, required this.isDark});
+
+  final Color color;
+  final bool isDark;
+
+  @override
+  State<_ShimmerPlaceholder> createState() => _ShimmerPlaceholderState();
+}
+
+class _ShimmerPlaceholderState extends State<_ShimmerPlaceholder>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = widget.isDark
+        ? MajesticColors.darkBorder
+        : widget.color.withValues(alpha: 0.08);
+    final highlightColor = widget.isDark
+        ? MajesticColors.darkCard
+        : widget.color.withValues(alpha: 0.18);
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 72,
+              height: 28,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                gradient: LinearGradient(
+                  begin: Alignment(-1.0 + 2.0 * _controller.value, 0),
+                  end: Alignment(1.0 + 2.0 * _controller.value, 0),
+                  colors: [baseColor, highlightColor, baseColor],
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              width: 48,
+              height: 12,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(4),
+                gradient: LinearGradient(
+                  begin: Alignment(-1.0 + 2.0 * _controller.value, 0),
+                  end: Alignment(1.0 + 2.0 * _controller.value, 0),
+                  colors: [baseColor, highlightColor, baseColor],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
