@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { MobileTableCard, MobileTableRow, Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
-import { RoleGate } from "@/lib/auth";
+import { RoleGate, useAuth } from "@/lib/auth";
 import { statusLabel } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
@@ -74,6 +74,110 @@ function toDateInputValue(value?: string | Date | null) {
   return date.toISOString().slice(0, 10);
 }
 
+type VoucherRoute = {
+  key: string;
+  title: string;
+  voucherType: "ISSUE" | "RECEIPT" | "MOVEMENT";
+  sourceRole: string;
+  destinationRole: string;
+  sourceLabel: string;
+  destinationLabel: string;
+  targetStatus: string;
+  requiresFactory?: boolean;
+  operatorRoles: string[];
+};
+
+type BatchRouteResponse = {
+  batch: any;
+  updated_job_ids: string[];
+  skipped_job_ids: string[];
+};
+
+const VOUCHER_ROUTES: VoucherRoute[] = [
+  {
+    key: "dispatch_factory",
+    title: "Issue to Factory",
+    voucherType: "ISSUE",
+    sourceRole: "Dispatch",
+    destinationRole: "Factory",
+    sourceLabel: "Present Location",
+    destinationLabel: "Factory",
+    targetStatus: "DISPATCHED_TO_FACTORY",
+    requiresFactory: true,
+    operatorRoles: ["Dispatch"]
+  },
+  {
+    key: "factory_receipt",
+    title: "Receive at Factory",
+    voucherType: "RECEIPT",
+    sourceRole: "Dispatch",
+    destinationRole: "Factory",
+    sourceLabel: "Present Location",
+    destinationLabel: "Factory",
+    targetStatus: "RECEIVED_AT_FACTORY",
+    requiresFactory: true,
+    operatorRoles: ["Factory"]
+  },
+  {
+    key: "factory_return_receipt",
+    title: "Receive from Factory",
+    voucherType: "RECEIPT",
+    sourceRole: "Factory",
+    destinationRole: "QC_Stock",
+    sourceLabel: "Factory",
+    destinationLabel: "Present Location",
+    targetStatus: "RECEIVED_AT_SHOP",
+    requiresFactory: true,
+    operatorRoles: ["QC_Stock"]
+  },
+  {
+    key: "qc_stock",
+    title: "QC to Stock",
+    voucherType: "MOVEMENT",
+    sourceRole: "QC_Stock",
+    destinationRole: "QC_Stock",
+    sourceLabel: "Quality Control",
+    destinationLabel: "Stock",
+    targetStatus: "ADDED_TO_STOCK",
+    operatorRoles: ["QC_Stock"]
+  },
+  {
+    key: "qc_delivery",
+    title: "QC to Delivery",
+    voucherType: "ISSUE",
+    sourceRole: "QC_Stock",
+    destinationRole: "Delivery",
+    sourceLabel: "Quality Control",
+    destinationLabel: "Delivery",
+    targetStatus: "HANDED_TO_DELIVERY",
+    operatorRoles: ["QC_Stock"]
+  }
+];
+
+function routeForTargetStatus(targetStatus?: string | null) {
+  return VOUCHER_ROUTES.find((route) => route.targetStatus === targetStatus) || VOUCHER_ROUTES[0];
+}
+
+function routeForKey(routeKey: string) {
+  return VOUCHER_ROUTES.find((route) => route.key === routeKey) || VOUCHER_ROUTES[0];
+}
+
+function routeAllowedForRoles(route: VoucherRoute, roles: string[]) {
+  return roles.includes("Admin") || route.operatorRoles.some((role) => roles.includes(role));
+}
+
+function routeLabel(route: VoucherRoute) {
+  return `${route.sourceLabel} -> ${route.destinationLabel}`;
+}
+
+function formatVoucherType(value?: string | null) {
+  if (!value) return "Voucher";
+  return value
+    .split("_")
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function BatchDetailModal({
   batchId,
   onClose
@@ -82,6 +186,7 @@ function BatchDetailModal({
   onClose: () => void;
 }) {
   const { request, requestBlob } = useApi();
+  const { roles } = useAuth();
   const [jobIdToAdd, setJobIdToAdd] = useState("");
   const [addError, setAddError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -104,15 +209,19 @@ function BatchDetailModal({
     queryFn: () => request<any[]>("/factories")
   });
 
+  const batch = batchQuery.data;
+  const selectedRoute = routeForTargetStatus(batch?.target_status);
+  const canOperateSelectedRoute = routeAllowedForRoles(selectedRoute, roles);
+
   const addItemMutation = useMutation({
     mutationFn: (jobId: string) =>
       request(`/jobs/${jobId}/scan`, {
         method: "POST",
         body: JSON.stringify({
-          to_status: "DISPATCHED_TO_FACTORY",
+          to_status: selectedRoute.targetStatus,
           batch_id: batchId,
-          factory_id: selectedFactoryId || undefined,
-          remarks: "Dispatch scan"
+          factory_id: selectedRoute.requiresFactory ? selectedFactoryId || undefined : undefined,
+          remarks: `${selectedRoute.title} scan`
         })
       }),
     onSuccess: (_data, jobId) => {
@@ -194,15 +303,16 @@ function BatchDetailModal({
     }
   });
 
-  const batch = batchQuery.data;
   const factories = factoriesQuery.data || [];
   const isArchived = Boolean(batch?.is_archived);
   const readyLabel = statusLabel("PACKED_READY");
   const selectedFactoryName =
     batch?.factory_name || factories.find((factory) => factory.id === selectedFactoryId)?.name || "";
-  const idleScanFeedbackMessage = selectedFactoryId
-    ? `Scanner ready for ${selectedFactoryName || "selected factory"}`
-    : "Select a factory before scanning";
+  const idleScanFeedbackMessage = selectedRoute.requiresFactory
+    ? selectedFactoryId
+      ? `Scanner ready for ${selectedFactoryName || "selected factory"}`
+      : "Select a factory before scanning"
+    : `Scanner ready for ${selectedRoute.title}`;
 
   useEffect(() => {
     setSelectedFactoryId(batch?.factory_id || "");
@@ -242,12 +352,18 @@ function BatchDetailModal({
     setScanFeedbackMessage(idleScanFeedbackMessage);
   }, [idleScanFeedbackMessage, scanFeedback]);
 
-  const canAddItems = batch?.status === "CREATED" && !isArchived;
-  const canDispatch = batch?.status === "CREATED" && batch?.item_count > 0 && !isArchived;
+  const canAddItems = batch?.status === "CREATED" && !isArchived && canOperateSelectedRoute;
+  const canDispatch =
+    selectedRoute.targetStatus === "DISPATCHED_TO_FACTORY" &&
+    batch?.status === "CREATED" &&
+    batch?.item_count > 0 &&
+    !isArchived &&
+    canOperateSelectedRoute;
   const canClose = batch?.status === "DISPATCHED" && !isArchived;
   const canEditItems = Boolean(batch) && batch.status !== "CLOSED" && !isArchived;
   const isVoucherFactoryLocked = Boolean(batch?.factory_id);
   const canClearBatch =
+    selectedRoute.targetStatus === "DISPATCHED_TO_FACTORY" &&
     canEditItems &&
     Boolean(batch?.items?.length) &&
     batch.items.every((item: any) => item.current_status === "DISPATCHED_TO_FACTORY");
@@ -309,8 +425,8 @@ function BatchDetailModal({
       focusScanInput();
       return;
     }
-    if (!selectedFactoryId) {
-      const message = "Select a factory before dispatching";
+    if (selectedRoute.requiresFactory && !selectedFactoryId) {
+      const message = "Select a factory before scanning";
       setAddError(message);
       setScanFeedback("error");
       setScanFeedbackMessage(message);
@@ -329,8 +445,9 @@ function BatchDetailModal({
       <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-[var(--shadow-lg)] sm:max-w-3xl sm:rounded-2xl sm:p-6">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <CardLabel>Issue Voucher</CardLabel>
+            <CardLabel>{formatVoucherType(batch?.voucher_type || selectedRoute.voucherType)} Voucher</CardLabel>
             <CardTitle className="mt-1">{batch?.batch_code || "Loading..."}</CardTitle>
+            <p className="mt-1 text-sm text-slate">{routeLabel(selectedRoute)}</p>
             {batch?.status && <StatusBadge status={batch.status} className="mt-2" />}
           </div>
           <Button variant="outline" size="sm" onClick={onClose}>
@@ -338,10 +455,14 @@ function BatchDetailModal({
           </Button>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="mb-5 grid grid-cols-2 gap-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:grid-cols-3 lg:grid-cols-6">
           <div>
             <p className="text-xs text-slate">Items</p>
             <p className="mt-1 text-lg font-semibold">{batch?.item_count || 0}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate">Route</p>
+            <p className="mt-1 font-medium">{selectedRoute.title}</p>
           </div>
           <div>
             <p className="text-xs text-slate">Factory</p>
@@ -354,7 +475,7 @@ function BatchDetailModal({
             </p>
           </div>
           <div>
-            <p className="text-xs text-slate">Issued At</p>
+            <p className="text-xs text-slate">Processed At</p>
             <p className="mt-1 font-medium">{formatDateTime(batch?.dispatch_date)}</p>
           </div>
           <div>
@@ -374,13 +495,13 @@ function BatchDetailModal({
           </div>
         )}
 
-        <RoleGate roles={["Admin", "Dispatch"]}>
+        <RoleGate roles={["Admin", "Dispatch", "Factory", "QC_Stock"]}>
           {canAddItems && (
             <div className="mb-5 rounded-xl border border-ink/8 bg-white/80 p-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate">Add Item</p>
-              <p className="mt-1 text-sm font-medium">Scan items into this voucher</p>
+              <p className="mt-1 text-sm font-medium">Scan items into this {selectedRoute.title.toLowerCase()} voucher</p>
               <div className="mt-3 space-y-3">
-                {!isVoucherFactoryLocked && (
+                {selectedRoute.requiresFactory && !isVoucherFactoryLocked && (
                   <div>
                     <label className="mb-1.5 block text-xs font-medium text-slate">Factory</label>
                     <Select
@@ -398,7 +519,7 @@ function BatchDetailModal({
                       ))}
                     </Select>
                     {!factories.length && (
-                      <p className="mt-1 text-xs text-slate">Add factories in Settings to enable dispatch.</p>
+                      <p className="mt-1 text-xs text-slate">Add factories in Settings to enable factory routes.</p>
                     )}
                   </div>
                 )}
@@ -437,7 +558,7 @@ function BatchDetailModal({
                       scanFeedback === "success" && "bg-emerald-600 hover:bg-emerald-600 shadow-[0_0_0_3px_rgba(16,185,129,0.18)]",
                       scanFeedback === "error" && "bg-red-600 hover:bg-red-600 shadow-[0_0_0_3px_rgba(239,68,68,0.18)]"
                     )}
-                    disabled={addItemMutation.isPending || !selectedFactoryId}
+                    disabled={addItemMutation.isPending || Boolean(selectedRoute.requiresFactory && !selectedFactoryId)}
                   >
                     {addItemMutation.isPending
                       ? "Scanning..."
@@ -473,7 +594,7 @@ function BatchDetailModal({
                     <p className="text-sm text-red-700">{addError}</p>
                   </div>
                 )}
-                <p className="text-xs text-slate">Only items with status {readyLabel.toUpperCase()} can be issued</p>
+                <p className="text-xs text-slate">Items must be at the valid source status for {routeLabel(selectedRoute)}.</p>
               </div>
             </div>
           )}
@@ -671,11 +792,17 @@ function BatchDetailModal({
 
 function BatchesPageContent() {
   const { request } = useApi();
+  const { roles } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
+  const [selectedCreateRouteKey, setSelectedCreateRouteKey] = useState("dispatch_factory");
+  const [processVoucherCode, setProcessVoucherCode] = useState("");
+  const [selectedProcessRouteKey, setSelectedProcessRouteKey] = useState("factory_return_receipt");
+  const [processMessage, setProcessMessage] = useState("");
   const [createError, setCreateError] = useState("");
+  const [processError, setProcessError] = useState("");
   const [pageError, setPageError] = useState("");
   const [showArchived, setShowArchived] = useState(() => searchParams.get("include_archived") === "true");
   const [delayedOnly, setDelayedOnly] = useState(() => searchParams.get("delayed") === "true");
@@ -699,12 +826,23 @@ function BatchesPageContent() {
     queryFn: () => request<any[]>("/factories")
   });
 
+  const availableRoutes = useMemo(
+    () => VOUCHER_ROUTES.filter((route) => routeAllowedForRoles(route, roles)),
+    [roles]
+  );
+  const selectedCreateRoute = routeForKey(selectedCreateRouteKey);
+  const selectedProcessRoute = routeForKey(selectedProcessRouteKey);
+
   const createMutation = useMutation({
-    mutationFn: (factoryId: string) =>
+    mutationFn: ({ factoryId, route }: { factoryId: string; route: VoucherRoute }) =>
       request("/batches", {
         method: "POST",
         body: JSON.stringify({
-          factory_id: factoryId || undefined
+          factory_id: route.requiresFactory ? factoryId || undefined : undefined,
+          voucher_type: route.voucherType,
+          source_role: route.sourceRole,
+          destination_role: route.destinationRole,
+          target_status: route.targetStatus
         })
       }),
     onSuccess: (createdVoucher: any) => {
@@ -714,6 +852,35 @@ function BatchesPageContent() {
     },
     onError: (err: any) => {
       setCreateError(err?.message || "Failed to create voucher");
+    }
+  });
+
+  const processVoucherMutation = useMutation({
+    mutationFn: ({ voucherCode, route, factoryId }: { voucherCode: string; route: VoucherRoute; factoryId: string }) =>
+      request<BatchRouteResponse>(`/batches/${encodeURIComponent(voucherCode)}/route`, {
+        method: "POST",
+        body: JSON.stringify({
+          target_status: route.targetStatus,
+          factory_id: route.requiresFactory ? factoryId || undefined : undefined,
+          remarks: `Bulk ${route.title} voucher scan`
+        })
+      }),
+    onSuccess: (result) => {
+      const updated = result.updated_job_ids.length;
+      const skipped = result.skipped_job_ids.length;
+      setProcessVoucherCode("");
+      setProcessError("");
+      setProcessMessage(
+        skipped
+          ? `${updated} items updated, ${skipped} already processed.`
+          : `${updated} items updated.`
+      );
+      setSelectedBatchId(result.batch.id);
+      batchesQuery.refetch();
+    },
+    onError: (err: any) => {
+      setProcessMessage("");
+      setProcessError(err?.message || "Failed to process voucher");
     }
   });
 
@@ -768,6 +935,18 @@ function BatchesPageContent() {
   const activeFactories = factories.filter((factory) => factory.is_active !== false);
 
   useEffect(() => {
+    if (!availableRoutes.length) {
+      return;
+    }
+    if (!availableRoutes.some((route) => route.key === selectedCreateRouteKey)) {
+      setSelectedCreateRouteKey(availableRoutes[0].key);
+    }
+    if (!availableRoutes.some((route) => route.key === selectedProcessRouteKey)) {
+      setSelectedProcessRouteKey(availableRoutes[0].key);
+    }
+  }, [availableRoutes, selectedCreateRouteKey, selectedProcessRouteKey]);
+
+  useEffect(() => {
     if (!activeFactories.length) {
       setSelectedCreateFactoryId("");
       return;
@@ -781,12 +960,35 @@ function BatchesPageContent() {
   }, [activeFactories, selectedCreateFactoryId]);
 
   const handleCreateVoucher = () => {
-    if (!selectedCreateFactoryId) {
+    if (!routeAllowedForRoles(selectedCreateRoute, roles)) {
+      setCreateError("Your role cannot create this voucher route");
+      return;
+    }
+    if (selectedCreateRoute.requiresFactory && !selectedCreateFactoryId) {
       setCreateError("Select a factory before creating a voucher");
       return;
     }
     setCreateError("");
-    createMutation.mutate(selectedCreateFactoryId);
+    createMutation.mutate({ factoryId: selectedCreateFactoryId, route: selectedCreateRoute });
+  };
+
+  const handleProcessVoucher = () => {
+    const normalizedVoucherCode = processVoucherCode.trim().toUpperCase();
+    if (!normalizedVoucherCode) {
+      setProcessError("Scan or enter a voucher code");
+      return;
+    }
+    if (!routeAllowedForRoles(selectedProcessRoute, roles)) {
+      setProcessError("Your role cannot process this voucher route");
+      return;
+    }
+    setProcessError("");
+    setProcessMessage("");
+    processVoucherMutation.mutate({
+      voucherCode: normalizedVoucherCode,
+      route: selectedProcessRoute,
+      factoryId: selectedCreateFactoryId
+    });
   };
 
   const handleArchiveVoucher = (batch: any) => {
@@ -820,12 +1022,12 @@ function BatchesPageContent() {
   return (
     <AppShell>
       <Card className="space-y-5">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <CardLabel>Vouchers</CardLabel>
-            <CardTitle>Issue Vouchers</CardTitle>
-            <CardDescription>Create multiple factory-specific vouchers per day, fix scan mistakes, and export Excel.</CardDescription>
-            <RoleGate roles={["Admin", "Dispatch"]}>
+            <CardTitle>Vouchers</CardTitle>
+            <CardDescription>Create issue, receipt, and movement vouchers, then process bulk routes from one scanned voucher code.</CardDescription>
+            <RoleGate roles={["Admin", "Dispatch", "Factory", "QC_Stock"]}>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Button
                   variant={delayedOnly ? "primary" : "outline"}
@@ -847,43 +1049,138 @@ function BatchesPageContent() {
               </div>
             </RoleGate>
           </div>
-          <RoleGate roles={["Admin", "Dispatch"]}>
-            <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4 sm:min-w-[28rem]">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate">Create Voucher</p>
-                <p className="mt-1 text-sm font-medium text-ink">Select the destination factory and open a new voucher.</p>
-                <p className="mt-1 text-xs text-slate">Voucher number and created time are assigned automatically.</p>
-              </div>
-              {activeFactories.length ? (
-                <>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate">Factory</label>
-                    <Select
-                      value={selectedCreateFactoryId}
-                      onChange={(e) => {
-                        setSelectedCreateFactoryId(e.target.value);
-                        setCreateError("");
-                      }}
-                    >
-                      {activeFactories.map((factory) => (
-                        <option key={factory.id} value={factory.id}>
-                          {factory.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 border-t border-ink/8 pt-3">
-                    <p className="text-xs text-slate">New factories appear here automatically after refresh.</p>
-                    <Button onClick={handleCreateVoucher} disabled={createMutation.isPending || !selectedCreateFactoryId}>
-                      {createMutation.isPending ? "Creating..." : "Create Voucher"}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-xl border border-ink/8 bg-white/70 px-3 py-3 text-sm text-slate">
-                  No active factories available. Add or activate a factory in Settings first.
+          <RoleGate roles={["Admin", "Dispatch", "Factory", "QC_Stock"]}>
+            <div className="grid gap-3 sm:min-w-[34rem] lg:grid-cols-2 xl:grid-cols-1">
+              <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate">Process Voucher</p>
+                  <p className="mt-1 text-sm font-medium text-ink">Scan one voucher code and apply the selected route to every item inside.</p>
                 </div>
-              )}
+                {availableRoutes.length ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate">Route</label>
+                      <Select
+                        value={selectedProcessRouteKey}
+                        onChange={(e) => {
+                          setSelectedProcessRouteKey(e.target.value);
+                          setProcessError("");
+                          setProcessMessage("");
+                        }}
+                      >
+                        {availableRoutes.map((route) => (
+                          <option key={route.key} value={route.key}>
+                            {route.title} - {routeLabel(route)}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate">Voucher Code</label>
+                      <Input
+                        value={processVoucherCode}
+                        placeholder="Scan VCH-2026-05-001"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="characters"
+                        spellCheck={false}
+                        onChange={(e) => {
+                          setProcessVoucherCode(e.target.value);
+                          setProcessError("");
+                          setProcessMessage("");
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleProcessVoucher();
+                          }
+                        }}
+                      />
+                    </div>
+                    {selectedProcessRoute.requiresFactory && (
+                      <p className="text-xs text-slate">If the voucher already has a factory, it will be used automatically.</p>
+                    )}
+                    <Button
+                      onClick={handleProcessVoucher}
+                      disabled={processVoucherMutation.isPending || !processVoucherCode.trim()}
+                    >
+                      {processVoucherMutation.isPending ? "Processing..." : "Process Voucher"}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-ink/8 bg-white/70 px-3 py-3 text-sm text-slate">
+                    No voucher routes are available for your role.
+                  </div>
+                )}
+              </div>
+              <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate">Create Voucher</p>
+                  <p className="mt-1 text-sm font-medium text-ink">Select the route and open a new voucher.</p>
+                  <p className="mt-1 text-xs text-slate">Voucher number and created time are assigned automatically.</p>
+                </div>
+                {availableRoutes.length ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate">Route</label>
+                      <Select
+                        value={selectedCreateRouteKey}
+                        onChange={(e) => {
+                          setSelectedCreateRouteKey(e.target.value);
+                          setCreateError("");
+                        }}
+                      >
+                        {availableRoutes.map((route) => (
+                          <option key={route.key} value={route.key}>
+                            {route.title} - {routeLabel(route)}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    {selectedCreateRoute.requiresFactory && (
+                      activeFactories.length ? (
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate">Factory</label>
+                          <Select
+                            value={selectedCreateFactoryId}
+                            onChange={(e) => {
+                              setSelectedCreateFactoryId(e.target.value);
+                              setCreateError("");
+                            }}
+                          >
+                            {activeFactories.map((factory) => (
+                              <option key={factory.id} value={factory.id}>
+                                {factory.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-ink/8 bg-white/70 px-3 py-3 text-sm text-slate">
+                          No active factories available. Add or activate a factory in Settings first.
+                        </div>
+                      )
+                    )}
+                    <div className="flex items-center justify-between gap-3 border-t border-ink/8 pt-3">
+                      <p className="text-xs text-slate">
+                        {selectedCreateRoute.requiresFactory
+                          ? "New factories appear here automatically after refresh."
+                          : "This route does not require a factory."}
+                      </p>
+                      <Button
+                        onClick={handleCreateVoucher}
+                        disabled={createMutation.isPending || Boolean(selectedCreateRoute.requiresFactory && !selectedCreateFactoryId)}
+                      >
+                        {createMutation.isPending ? "Creating..." : "Create Voucher"}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-xl border border-ink/8 bg-white/70 px-3 py-3 text-sm text-slate">
+                    No voucher routes are available for your role.
+                  </div>
+                )}
+              </div>
             </div>
           </RoleGate>
         </div>
@@ -891,6 +1188,18 @@ function BatchesPageContent() {
         {createError && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
             <p className="text-sm text-red-700">{createError}</p>
+          </div>
+        )}
+
+        {processError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <p className="text-sm text-red-700">{processError}</p>
+          </div>
+        )}
+
+        {processMessage && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+            <p className="text-sm text-emerald-700">{processMessage}</p>
           </div>
         )}
 
@@ -910,123 +1219,134 @@ function BatchesPageContent() {
         <div className="hidden sm:block">
           <Table>
             <THead>
-              <TR>
-                <TH>Voucher</TH>
-                <TH>Status</TH>
-                <TH>Factory</TH>
-                <TH>Created At</TH>
-                <TH>Issued At</TH>
-                <TH>Items</TH>
-                <TH>Actions</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {batches.map((batch) => (
-                <TR key={batch.id}>
-                  <TD>
-                    <div>
-                      <p className="font-medium">{batch.batch_code}</p>
-                      {batch.is_archived && <p className="text-xs text-slate">Archived</p>}
-                    </div>
-                  </TD>
-                  <TD>
-                    <StatusBadge status={batch.status} />
-                  </TD>
-                  <TD className="text-slate">{batch.factory_name || "-"}</TD>
-                  <TD className="text-slate">{formatDateTime(batch.created_at)}</TD>
-                  <TD className="text-slate">{formatDateTime(batch.dispatch_date)}</TD>
-                  <TD>{batch.item_count}</TD>
-                  <TD>
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
-                        Open
-                      </Button>
-                      <RoleGate roles={["Admin"]}>
-                        {batch.is_archived ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleRestoreVoucher(batch)}
-                            disabled={archiveMutation.isPending || restoreMutation.isPending}
-                          >
-                            {restoreMutation.isPending && mutatingBatchId === batch.id ? "Restoring..." : "Restore"}
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleArchiveVoucher(batch)}
-                            disabled={archiveMutation.isPending || restoreMutation.isPending}
-                          >
-                            {archiveMutation.isPending && mutatingBatchId === batch.id ? "Archiving..." : "Archive"}
-                          </Button>
-                        )}
-                      </RoleGate>
-                    </div>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
+	              <TR>
+	                <TH>Voucher</TH>
+	                <TH>Status</TH>
+	                <TH>Route</TH>
+	                <TH>Factory</TH>
+	                <TH>Created At</TH>
+	                <TH>Processed At</TH>
+	                <TH>Items</TH>
+	                <TH>Actions</TH>
+	              </TR>
+	            </THead>
+	            <TBody>
+	              {batches.map((batch) => {
+	                const batchRoute = routeForTargetStatus(batch.target_status);
+	                return (
+	                  <TR key={batch.id}>
+	                    <TD>
+	                      <div>
+	                        <p className="font-medium">{batch.batch_code}</p>
+	                        <p className="text-xs text-slate">{formatVoucherType(batch.voucher_type)}</p>
+	                        {batch.is_archived && <p className="text-xs text-slate">Archived</p>}
+	                      </div>
+	                    </TD>
+	                    <TD>
+	                      <StatusBadge status={batch.status} />
+	                    </TD>
+	                    <TD className="text-slate">{routeLabel(batchRoute)}</TD>
+	                    <TD className="text-slate">{batch.factory_name || "-"}</TD>
+	                    <TD className="text-slate">{formatDateTime(batch.created_at)}</TD>
+	                    <TD className="text-slate">{formatDateTime(batch.dispatch_date)}</TD>
+	                    <TD>{batch.item_count}</TD>
+	                    <TD>
+	                      <div className="flex flex-wrap gap-2">
+	                        <Button variant="outline" size="sm" onClick={() => setSelectedBatchId(batch.id)}>
+	                          Open
+	                        </Button>
+	                        <RoleGate roles={["Admin"]}>
+	                          {batch.is_archived ? (
+	                            <Button
+	                              variant="outline"
+	                              size="sm"
+	                              onClick={() => handleRestoreVoucher(batch)}
+	                              disabled={archiveMutation.isPending || restoreMutation.isPending}
+	                            >
+	                              {restoreMutation.isPending && mutatingBatchId === batch.id ? "Restoring..." : "Restore"}
+	                            </Button>
+	                          ) : (
+	                            <Button
+	                              variant="outline"
+	                              size="sm"
+	                              onClick={() => handleArchiveVoucher(batch)}
+	                              disabled={archiveMutation.isPending || restoreMutation.isPending}
+	                            >
+	                              {archiveMutation.isPending && mutatingBatchId === batch.id ? "Archiving..." : "Archive"}
+	                            </Button>
+	                          )}
+	                        </RoleGate>
+	                      </div>
+	                    </TD>
+	                  </TR>
+	                );
+	              })}
+	            </TBody>
           </Table>
         </div>
 
         <div className="space-y-3 sm:hidden">
-          {batches.map((batch) => (
-            <MobileTableCard key={batch.id}>
-              <div className="mb-3 flex items-start justify-between">
-                <div>
-                  <p className="font-semibold">{batch.batch_code}</p>
-                  <p className="text-sm text-slate">{batch.factory_name || "No factory"}</p>
-                  {batch.is_archived && <p className="mt-1 text-xs text-slate">Archived</p>}
+          {batches.map((batch) => {
+            const batchRoute = routeForTargetStatus(batch.target_status);
+            return (
+              <MobileTableCard key={batch.id}>
+                <div className="mb-3 flex items-start justify-between">
+                  <div>
+                    <p className="font-semibold">{batch.batch_code}</p>
+                    <p className="text-sm text-slate">{routeLabel(batchRoute)}</p>
+                    <p className="text-xs text-slate">{batch.factory_name || "No factory"}</p>
+                    {batch.is_archived && <p className="mt-1 text-xs text-slate">Archived</p>}
+                  </div>
+                  <StatusBadge status={batch.status} size="sm" />
                 </div>
-                <StatusBadge status={batch.status} size="sm" />
-              </div>
-              <div className="space-y-1 border-t border-ink/6 pt-3">
-                <MobileTableRow label="Items">{batch.item_count}</MobileTableRow>
-                <MobileTableRow label="Created">
-                  {formatDateTime(batch.created_at)}
-                </MobileTableRow>
-                <MobileTableRow label="Issued">
-                  {formatDateTime(batch.dispatch_date)}
-                </MobileTableRow>
-              </div>
-              <div className="mt-3 border-t border-ink/6 pt-3">
-                <div className="space-y-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setSelectedBatchId(batch.id)}
-                  >
-                    Open Voucher
-                  </Button>
-                  <RoleGate roles={["Admin"]}>
-                    {batch.is_archived ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => handleRestoreVoucher(batch)}
-                        disabled={archiveMutation.isPending || restoreMutation.isPending}
-                      >
-                        {restoreMutation.isPending && mutatingBatchId === batch.id ? "Restoring..." : "Restore Voucher"}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => handleArchiveVoucher(batch)}
-                        disabled={archiveMutation.isPending || restoreMutation.isPending}
-                      >
-                        {archiveMutation.isPending && mutatingBatchId === batch.id ? "Archiving..." : "Archive Voucher"}
-                      </Button>
-                    )}
-                  </RoleGate>
+                <div className="space-y-1 border-t border-ink/6 pt-3">
+                  <MobileTableRow label="Items">{batch.item_count}</MobileTableRow>
+                  <MobileTableRow label="Type">{formatVoucherType(batch.voucher_type)}</MobileTableRow>
+                  <MobileTableRow label="Created">
+                    {formatDateTime(batch.created_at)}
+                  </MobileTableRow>
+                  <MobileTableRow label="Processed">
+                    {formatDateTime(batch.dispatch_date)}
+                  </MobileTableRow>
                 </div>
-              </div>
-            </MobileTableCard>
-          ))}
+                <div className="mt-3 border-t border-ink/6 pt-3">
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => setSelectedBatchId(batch.id)}
+                    >
+                      Open Voucher
+                    </Button>
+                    <RoleGate roles={["Admin"]}>
+                      {batch.is_archived ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleRestoreVoucher(batch)}
+                          disabled={archiveMutation.isPending || restoreMutation.isPending}
+                        >
+                          {restoreMutation.isPending && mutatingBatchId === batch.id ? "Restoring..." : "Restore Voucher"}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleArchiveVoucher(batch)}
+                          disabled={archiveMutation.isPending || restoreMutation.isPending}
+                        >
+                          {archiveMutation.isPending && mutatingBatchId === batch.id ? "Archiving..." : "Archive Voucher"}
+                        </Button>
+                      )}
+                    </RoleGate>
+                  </div>
+                </div>
+              </MobileTableCard>
+            );
+          })}
         </div>
 
         {!batches.length && (

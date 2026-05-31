@@ -42,15 +42,19 @@ export function useApi() {
         }
         const text = await response.text();
         if (text) {
+          let parsed: any = null;
           try {
-            const parsed = JSON.parse(text);
-            if (parsed?.errors && typeof parsed.errors === "object") {
-              const parts = Object.entries(parsed.errors).map(([field, message]) => `${field}: ${message}`);
-              const prefix = parsed.message ? `${parsed.message} ` : "";
-              throw new Error(prefix + parts.join(", "));
-            }
+            parsed = JSON.parse(text);
           } catch {
             // Fall back to raw text if parsing fails.
+          }
+          if (typeof parsed?.detail === "string" && parsed.detail) {
+            throw new Error(parsed.detail);
+          }
+          if (parsed?.errors && typeof parsed.errors === "object") {
+            const parts = Object.entries(parsed.errors).map(([field, message]) => `${field}: ${message}`);
+            const prefix = parsed.message ? `${parsed.message} ` : "";
+            throw new Error(prefix + parts.join(", "));
           }
         }
         throw new Error(text || "Request failed");

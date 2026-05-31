@@ -29,11 +29,12 @@ from app.schemas import (
     BatchDetail,
     BatchDispatchRequest,
     BatchOut,
+    BatchRouteRequest,
+    BatchRouteResponse,
     JobOut,
 )
 from app.utils.diamond import diamond_carat_value
 from app.utils.pdf import generate_manifest_pdf
-from app.utils.diamond import diamond_carat_value
 from app.utils.roles import select_role_for_action
 from app.utils.transitions import STATUS_HOLDER_ROLE
 from app.utils.voucher_routes import batch_route, ensure_operator_can_create_route, get_voucher_route
@@ -62,6 +63,54 @@ MANIFEST_ITEM_COLUMNS = [
     "Added To Voucher At",
 ]
 
+BULK_ROUTE_SOURCE_STATUSES: dict[Status, set[Status]] = {
+    Status.DISPATCHED_TO_FACTORY: {Status.PACKED_READY},
+    Status.RECEIVED_AT_FACTORY: {Status.DISPATCHED_TO_FACTORY},
+    Status.RECEIVED_AT_SHOP: {
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+    },
+    Status.ADDED_TO_STOCK: {Status.RECEIVED_AT_SHOP},
+    Status.HANDED_TO_DELIVERY: {Status.RECEIVED_AT_SHOP, Status.ADDED_TO_STOCK},
+}
+
+BULK_ROUTE_REACHED_STATUSES: dict[Status, set[Status]] = {
+    Status.DISPATCHED_TO_FACTORY: {
+        Status.DISPATCHED_TO_FACTORY,
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.DELIVERED_TO_CUSTOMER,
+    },
+    Status.RECEIVED_AT_FACTORY: {
+        Status.RECEIVED_AT_FACTORY,
+        Status.RETURNED_FROM_FACTORY,
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.DELIVERED_TO_CUSTOMER,
+    },
+    Status.RECEIVED_AT_SHOP: {
+        Status.RECEIVED_AT_SHOP,
+        Status.ADDED_TO_STOCK,
+        Status.HANDED_TO_DELIVERY,
+        Status.DELIVERED_TO_CUSTOMER,
+    },
+    Status.ADDED_TO_STOCK: {Status.ADDED_TO_STOCK},
+    Status.HANDED_TO_DELIVERY: {Status.HANDED_TO_DELIVERY, Status.DELIVERED_TO_CUSTOMER},
+}
+
+BULK_ROUTE_BATCH_STATUS: dict[Status, BatchStatus] = {
+    Status.DISPATCHED_TO_FACTORY: BatchStatus.DISPATCHED,
+    Status.RECEIVED_AT_FACTORY: BatchStatus.RECEIVED_AT_FACTORY,
+    Status.RECEIVED_AT_SHOP: BatchStatus.RETURNED,
+    Status.ADDED_TO_STOCK: BatchStatus.CLOSED,
+    Status.HANDED_TO_DELIVERY: BatchStatus.DISPATCHED,
+}
+
 
 def _get_default_branch(db: Session) -> Branch:
     branch = db.query(Branch).first()
@@ -74,10 +123,11 @@ def _get_default_branch(db: Session) -> Branch:
 
 
 def _get_batch(db: Session, batch_id: str, *, with_items: bool = False, with_factory: bool = False) -> Batch:
+    normalized_batch_id = batch_id.strip()
     try:
-        batch_uuid = uuid.UUID(batch_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid voucher id") from exc
+        batch_uuid = uuid.UUID(normalized_batch_id)
+    except ValueError:
+        batch_uuid = None
     query = db.query(Batch)
     if with_factory:
         query = query.options(selectinload(Batch.factory))
@@ -87,7 +137,10 @@ def _get_batch(db: Session, batch_id: str, *, with_items: bool = False, with_fac
             .selectinload(BatchItem.job)
             .selectinload(ItemJob.factory)
         )
-    batch = query.filter(Batch.id == batch_uuid).first()
+    if batch_uuid:
+        batch = query.filter(Batch.id == batch_uuid).first()
+    else:
+        batch = query.filter(func.upper(Batch.batch_code) == normalized_batch_id.upper()).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Voucher not found")
     return batch
@@ -127,6 +180,24 @@ def _sync_batch_item_count(db: Session, batch: Batch) -> int:
         batch.dispatch_date = None
         batch.expected_return_date = None
     return batch.item_count
+
+
+def _format_status_values(statuses: set[Status]) -> str:
+    return ", ".join(sorted(status.value for status in statuses))
+
+
+def _is_bulk_route_already_reached(current_status: Status, target_status: Status) -> bool:
+    return current_status in BULK_ROUTE_REACHED_STATUSES.get(target_status, {target_status})
+
+
+def _bulk_route_source_statuses(target_status: Status) -> set[Status]:
+    return BULK_ROUTE_SOURCE_STATUSES.get(target_status, set())
+
+
+def _apply_batch_route_status(batch: Batch, target_status: Status, processed_at: datetime) -> None:
+    batch.status = BULK_ROUTE_BATCH_STATUS.get(target_status, BatchStatus.CLOSED)
+    if not batch.dispatch_date:
+        batch.dispatch_date = processed_at
 
 
 def _remove_batch_item(batch: Batch, batch_item: BatchItem, user) -> None:
@@ -484,6 +555,97 @@ def dispatch_batch(batch_id: str, payload: BatchDispatchRequest, user=Depends(re
     db.commit()
     db.refresh(batch)
     return batch
+
+
+@router.post("/{batch_id}/route", response_model=BatchRouteResponse)
+def route_batch(
+    batch_id: str,
+    payload: BatchRouteRequest,
+    user=Depends(require_roles(Role.ADMIN, Role.DISPATCH, Role.FACTORY, Role.QC_STOCK)),
+    db: Session = Depends(get_db),
+):
+    batch = _get_batch(db, batch_id, with_items=True, with_factory=True)
+    _ensure_batch_not_archived(batch)
+    if not batch.items:
+        raise HTTPException(status_code=400, detail="Voucher has no items")
+
+    target_status = payload.target_status
+    route = get_voucher_route(target_status)
+    ensure_operator_can_create_route(user.roles, route)
+
+    if route.requires_factory:
+        if payload.factory_id:
+            factory = _get_factory_by_uuid(db, payload.factory_id)
+            if batch.factory_id and batch.factory_id != factory.id:
+                raise HTTPException(status_code=400, detail="Voucher factory does not match")
+            batch.factory_id = factory.id
+        if not batch.factory_id:
+            raise HTTPException(status_code=400, detail="Factory id required for this voucher route")
+
+    allowed_source_statuses = _bulk_route_source_statuses(target_status)
+    invalid_items: list[str] = []
+    skipped_job_ids: list[str] = []
+    route_items: list[BatchItem] = []
+
+    for batch_item in _sorted_batch_items(batch):
+        job = batch_item.job
+        if job.is_archived:
+            invalid_items.append(f"{job.job_id} is archived")
+            continue
+        if _is_bulk_route_already_reached(job.current_status, target_status):
+            skipped_job_ids.append(job.job_id)
+            continue
+        if job.current_status not in allowed_source_statuses:
+            invalid_items.append(
+                f"{job.job_id} is {job.current_status.value}; expected {_format_status_values(allowed_source_statuses)}"
+            )
+            continue
+        if route.requires_factory and job.factory_id and job.factory_id != batch.factory_id:
+            invalid_items.append(f"{job.job_id} factory does not match voucher factory")
+            continue
+        route_items.append(batch_item)
+
+    if invalid_items:
+        preview = "; ".join(invalid_items[:5])
+        remaining = len(invalid_items) - 5
+        suffix = f"; and {remaining} more" if remaining > 0 else ""
+        raise HTTPException(status_code=400, detail=f"Cannot process voucher: {preview}{suffix}")
+
+    now = payload.processed_at or datetime.now(timezone.utc)
+    event_role = select_role_for_action(user.roles, preferred=route.operator_roles)
+    remarks = payload.remarks or f"Bulk voucher {batch.batch_code} route to {target_status.value}"
+    updated_job_ids: list[str] = []
+
+    for batch_item in route_items:
+        job = batch_item.job
+        previous_status = job.current_status
+        job.current_status = target_status
+        job.current_holder_role = STATUS_HOLDER_ROLE[target_status]
+        job.current_holder_user_id = user.id
+        job.last_scan_at = now
+        if route.requires_factory:
+            job.factory_id = batch.factory_id
+        db.add(
+            StatusEvent(
+                job_id=job.id,
+                from_status=previous_status,
+                to_status=target_status,
+                scanned_by_user_id=user.id,
+                scanned_by_role=event_role,
+                timestamp=now,
+                remarks=remarks,
+            )
+        )
+        updated_job_ids.append(job.job_id)
+
+    _apply_batch_route_status(batch, target_status, now)
+    db.commit()
+    db.refresh(batch)
+    return BatchRouteResponse(
+        batch=BatchOut.model_validate(batch),
+        updated_job_ids=updated_job_ids,
+        skipped_job_ids=skipped_job_ids,
+    )
 
 
 @router.get("/{batch_id}", response_model=BatchDetail)

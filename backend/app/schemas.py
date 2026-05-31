@@ -277,6 +277,19 @@ class BatchDispatchRequest(BaseModel):
     factory_id: Optional[UUID] = None
 
 
+class BatchRouteRequest(BaseModel):
+    target_status: Status
+    factory_id: Optional[UUID] = None
+    processed_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
+class BatchRouteResponse(BaseModel):
+    batch: BatchOut
+    updated_job_ids: List[str] = Field(default_factory=list)
+    skipped_job_ids: List[str] = Field(default_factory=list)
+
+
 class IncidentCreate(BaseModel):
     job_id: Optional[str] = None
     batch_id: Optional[UUID] = None
