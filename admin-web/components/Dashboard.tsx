@@ -317,6 +317,60 @@ function EmptyPanel({
   );
 }
 
+function WorkQueueRow({
+  label,
+  value,
+  description,
+  href,
+  tone = "default"
+}: {
+  label: string;
+  value: number;
+  description: string;
+  href: string;
+  tone?: "default" | "warning" | "danger" | "success";
+}) {
+  const toneClasses =
+    value === 0
+      ? "border-ink/8 bg-white/60"
+      : tone === "danger"
+        ? "border-red-200/70 bg-red-50/70"
+        : tone === "warning"
+          ? "border-amber-200/70 bg-amber-50/70"
+          : tone === "success"
+            ? "border-emerald-200/70 bg-emerald-50/70"
+            : "border-ink/8 bg-white/80";
+  const valueClasses =
+    value === 0
+      ? "text-slate"
+      : tone === "danger"
+        ? "text-red-700"
+        : tone === "warning"
+          ? "text-amber-700"
+          : tone === "success"
+            ? "text-emerald-700"
+            : "text-forest";
+
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "group flex min-h-[92px] items-center justify-between gap-4 rounded-2xl border px-4 py-3 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[var(--shadow-sm)]",
+        toneClasses
+      )}
+    >
+      <div>
+        <p className="text-sm font-semibold text-ink">{label}</p>
+        <p className="mt-1 text-xs leading-5 text-slate">{description}</p>
+      </div>
+      <div className="shrink-0 text-right">
+        <p className={cn("text-2xl font-semibold font-display", valueClasses)}>{value}</p>
+        <p className="mt-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate group-hover:text-forest">Open</p>
+      </div>
+    </Link>
+  );
+}
+
 function LoadingPanel() {
   return (
     <div className="flex min-h-[160px] items-center justify-center">
@@ -646,6 +700,55 @@ export default function Dashboard() {
           href="/items?attention=awaiting_closure"
         />
       </div>
+
+      <Card className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <CardLabel>Today&apos;s Work Queue</CardLabel>
+            <CardTitle className="mt-2">Next operator actions</CardTitle>
+            <CardDescription className="mt-2">
+              Start with the queues that have blocked handoffs, then move to factory follow-up and closure work.
+            </CardDescription>
+          </div>
+          <Badge variant={attentionCount > 0 ? "warning" : "success"} className="w-fit">
+            {attentionCount > 0 ? `${attentionCount} exceptions` : "Clear"}
+          </Badge>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <WorkQueueRow
+            label="Incident response"
+            value={openIncidentCount}
+            description="Open discrepancies, duplicate scans, damage, or missing item reports."
+            href="/incidents?status=OPEN"
+            tone={openIncidentCount > 0 ? "danger" : "success"}
+          />
+          <WorkQueueRow
+            label="Factory follow-up"
+            value={delayedVoucherCount || atFactoryCount}
+            description={
+              delayedVoucherCount
+                ? "Delayed vouchers crossed expected return date."
+                : "Items currently sitting in the factory pipeline."
+            }
+            href={delayedVoucherCount ? "/batches?delayed=true" : "/items?attention=at_factory"}
+            tone={delayedVoucherCount ? "warning" : atFactoryCount ? "default" : "success"}
+          />
+          <WorkQueueRow
+            label="Receive from factory"
+            value={expectedFromFactoryCount}
+            description="Items received at factory and waiting for present-location receipt."
+            href="/batches"
+            tone={expectedFromFactoryCount > 0 ? "warning" : "success"}
+          />
+          <WorkQueueRow
+            label="QC closure"
+            value={awaitingClosureCount}
+            description="Returned, stock-ready, or delivery-handover items waiting for final action."
+            href="/items?attention=awaiting_closure"
+            tone={awaitingClosureCount > 0 ? "warning" : "success"}
+          />
+        </div>
+      </Card>
 
       <div className="grid gap-5 xl:grid-cols-3">
         <SectionCard

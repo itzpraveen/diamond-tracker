@@ -17,6 +17,7 @@ const links = [
   { href: "/incidents", label: "Incidents", icon: "In" },
   { href: "/reports", label: "Reports", icon: "Re" },
   { href: "/audit", label: "Audit Log", icon: "Au" },
+  { href: "/help", label: "Help", icon: "He" },
   { href: "/users", label: "Users", icon: "Us" },
   { href: "/settings", label: "Settings", icon: "Se" }
 ];

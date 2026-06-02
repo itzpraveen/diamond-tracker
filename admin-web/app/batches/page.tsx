@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import AppShell from "@/components/AppShell";
-import { StatusBadge } from "@/components/ui/badge";
+import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
@@ -157,6 +157,37 @@ const VOUCHER_ROUTES: VoucherRoute[] = [
   }
 ];
 
+const VOUCHER_SOURCE_STATUSES: Record<string, string[]> = {
+  DISPATCHED_TO_FACTORY: ["PACKED_READY"],
+  RECEIVED_AT_FACTORY: ["DISPATCHED_TO_FACTORY"],
+  RECEIVED_AT_SHOP: ["DISPATCHED_TO_FACTORY", "RECEIVED_AT_FACTORY", "RETURNED_FROM_FACTORY"],
+  ADDED_TO_STOCK: ["RECEIVED_AT_SHOP"],
+  HANDED_TO_DELIVERY: ["RECEIVED_AT_SHOP", "ADDED_TO_STOCK"]
+};
+
+const VOUCHER_REACHED_STATUSES: Record<string, string[]> = {
+  DISPATCHED_TO_FACTORY: [
+    "DISPATCHED_TO_FACTORY",
+    "RECEIVED_AT_FACTORY",
+    "RETURNED_FROM_FACTORY",
+    "RECEIVED_AT_SHOP",
+    "ADDED_TO_STOCK",
+    "HANDED_TO_DELIVERY",
+    "DELIVERED_TO_CUSTOMER"
+  ],
+  RECEIVED_AT_FACTORY: [
+    "RECEIVED_AT_FACTORY",
+    "RETURNED_FROM_FACTORY",
+    "RECEIVED_AT_SHOP",
+    "ADDED_TO_STOCK",
+    "HANDED_TO_DELIVERY",
+    "DELIVERED_TO_CUSTOMER"
+  ],
+  RECEIVED_AT_SHOP: ["RECEIVED_AT_SHOP", "ADDED_TO_STOCK", "HANDED_TO_DELIVERY", "DELIVERED_TO_CUSTOMER"],
+  ADDED_TO_STOCK: ["ADDED_TO_STOCK"],
+  HANDED_TO_DELIVERY: ["HANDED_TO_DELIVERY", "DELIVERED_TO_CUSTOMER"]
+};
+
 function routeForTargetStatus(targetStatus?: string | null) {
   return VOUCHER_ROUTES.find((route) => route.targetStatus === targetStatus) || VOUCHER_ROUTES[0];
 }
@@ -171,6 +202,23 @@ function routeAllowedForRoles(route: VoucherRoute, roles: string[]) {
 
 function routeLabel(route: VoucherRoute) {
   return `${route.sourceLabel} -> ${route.destinationLabel}`;
+}
+
+function routeActionLabel(route: VoucherRoute) {
+  switch (route.targetStatus) {
+    case "DISPATCHED_TO_FACTORY":
+      return "Issue to factory";
+    case "RECEIVED_AT_FACTORY":
+      return "Factory receipt";
+    case "RECEIVED_AT_SHOP":
+      return "Receive from factory";
+    case "ADDED_TO_STOCK":
+      return "Move to stock";
+    case "HANDED_TO_DELIVERY":
+      return "Hand to delivery";
+    default:
+      return route.title;
+  }
 }
 
 function formatVoucherType(value?: string | null) {
@@ -370,6 +418,29 @@ function BatchDetailModal({
     canEditItems &&
     Boolean(batch?.items?.length) &&
     batch.items.every((item: any) => item.current_status === "DISPATCHED_TO_FACTORY");
+  const voucherProgress = useMemo(() => {
+    const items = batch?.items || [];
+    const sourceStatuses = new Set(VOUCHER_SOURCE_STATUSES[selectedRoute.targetStatus] || []);
+    const reachedStatuses = new Set(VOUCHER_REACHED_STATUSES[selectedRoute.targetStatus] || [selectedRoute.targetStatus]);
+    const statusCounts: Record<string, number> = {};
+    items.forEach((item: any) => {
+      statusCounts[item.current_status] = (statusCounts[item.current_status] || 0) + 1;
+    });
+    const readyCount = items.filter((item: any) => sourceStatuses.has(item.current_status)).length;
+    const processedCount = items.filter((item: any) => reachedStatuses.has(item.current_status)).length;
+    const blockedCount = items.length - readyCount - processedCount;
+    return {
+      total: items.length,
+      readyCount,
+      processedCount,
+      blockedCount: Math.max(0, blockedCount),
+      sourceStatuses: Array.from(sourceStatuses),
+      statusCounts: Object.entries(statusCounts).sort((a, b) => b[1] - a[1])
+    };
+  }, [batch?.items, selectedRoute.targetStatus]);
+  const progressPercent = voucherProgress.total
+    ? Math.round((voucherProgress.processedCount / voucherProgress.total) * 100)
+    : 0;
 
   const focusScanInput = (select = false) => {
     setTimeout(() => {
@@ -497,6 +568,53 @@ function BatchDetailModal({
             </p>
           </div>
         )}
+
+        <div className="mb-5 rounded-xl border border-ink/8 bg-white/80 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate">Voucher Journey</p>
+              <p className="mt-1 text-sm font-semibold text-ink">{routeActionLabel(selectedRoute)}</p>
+              <p className="mt-1 text-xs text-slate">
+                {routeLabel(selectedRoute)} · Target {statusLabel(selectedRoute.targetStatus)}
+              </p>
+            </div>
+            <Badge variant={voucherProgress.blockedCount ? "warning" : progressPercent === 100 && voucherProgress.total ? "success" : "default"}>
+              {progressPercent}% processed
+            </Badge>
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-sand">
+            <div className="h-full rounded-full bg-forest transition-all" style={{ width: `${progressPercent}%` }} />
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-ink/8 bg-sand/30 px-3 py-2">
+              <p className="text-xs text-slate">Ready for this route</p>
+              <p className="mt-1 text-xl font-semibold font-display text-forest">{voucherProgress.readyCount}</p>
+              <p className="mt-1 text-[11px] text-slate">
+                Expected {voucherProgress.sourceStatuses.map(statusLabel).join(", ") || "valid source status"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/70 px-3 py-2">
+              <p className="text-xs text-emerald-700">Processed or later</p>
+              <p className="mt-1 text-xl font-semibold font-display text-emerald-700">{voucherProgress.processedCount}</p>
+              <p className="mt-1 text-[11px] text-emerald-700">Already at target status or further ahead.</p>
+            </div>
+            <div className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-3 py-2">
+              <p className="text-xs text-amber-700">Needs review</p>
+              <p className="mt-1 text-xl font-semibold font-display text-amber-700">{voucherProgress.blockedCount}</p>
+              <p className="mt-1 text-[11px] text-amber-700">Items outside the route source and target states.</p>
+            </div>
+          </div>
+          {voucherProgress.statusCounts.length ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {voucherProgress.statusCounts.map(([status, count]) => (
+                <span key={status} className="inline-flex items-center gap-2 rounded-full border border-ink/8 bg-white/80 px-3 py-1 text-xs text-slate">
+                  <span className="font-semibold text-ink">{count}</span>
+                  {statusLabel(status)}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         <RoleGate roles={["Admin", "Dispatch", "Factory", "QC_Stock"]}>
           {canAddItems && (

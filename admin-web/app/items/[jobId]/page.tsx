@@ -6,21 +6,23 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import AppShell from "@/components/AppShell";
-import { Badge } from "@/components/ui/badge";
+import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { RoleGate, useAuth } from "@/lib/auth";
 import { formatInr } from "@/lib/format";
 import { getApiBaseUrl } from "@/lib/apiBase";
 import { statusLabel } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/useApi";
 
 const statuses = [
   "PURCHASED",
   "PACKED_READY",
   "DISPATCHED_TO_FACTORY",
+  "RECEIVED_AT_FACTORY",
+  "RETURNED_FROM_FACTORY",
   "RECEIVED_AT_SHOP",
   "ADDED_TO_STOCK",
   "HANDED_TO_DELIVERY",
@@ -31,12 +33,64 @@ const statuses = [
 
 const API_BASE_URL = getApiBaseUrl();
 
+const ITEM_JOURNEY_STEPS = [
+  { status: "PURCHASED", title: "Created", description: "Purchase or repair entry recorded." },
+  { status: "PACKED_READY", title: "Ready for issue", description: "Label printed and item ready for voucher movement." },
+  { status: "DISPATCHED_TO_FACTORY", title: "Issued to factory", description: "Item left present location for factory work." },
+  { status: "RECEIVED_AT_FACTORY", title: "Received at factory", description: "Factory acknowledged receipt." },
+  { status: "RETURNED_FROM_FACTORY", title: "Returned from factory", description: "Factory marked work as returned." },
+  { status: "RECEIVED_AT_SHOP", title: "Received at present location", description: "QC received the item back from factory." },
+  { status: "ADDED_TO_STOCK", title: "Moved to stock", description: "QC placed the item into stock or storage." },
+  { status: "HANDED_TO_DELIVERY", title: "Handed to delivery", description: "Item moved from QC to delivery." },
+  { status: "DELIVERED_TO_CUSTOMER", title: "Delivered", description: "Final customer delivery completed." }
+];
+
 const resolvePhotoUrl = (url: string) => {
   if (!url) return "";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("/")) return `${API_BASE_URL}${url}`;
   return url;
 };
+
+function formatEventDate(value?: string | null) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function buildItemJourney(job: any) {
+  const events = [...(job?.status_events || [])].sort(
+    (a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  const latestEventByStatus = new Map<string, any>();
+  events.forEach((event: any) => {
+    latestEventByStatus.set(event.to_status, event);
+  });
+  const knownStatuses = new Set(ITEM_JOURNEY_STEPS.map((step) => step.status));
+  const baseSteps = ITEM_JOURNEY_STEPS.map((step) => {
+    const event = latestEventByStatus.get(step.status);
+    return {
+      ...step,
+      event,
+      state: job?.current_status === step.status ? "current" : event ? "done" : "pending"
+    };
+  });
+  if (job?.current_status && !knownStatuses.has(job.current_status)) {
+    const event = latestEventByStatus.get(job.current_status);
+    baseSteps.push({
+      status: job.current_status,
+      title: statusLabel(job.current_status),
+      description: "Special handling status outside the standard journey.",
+      event,
+      state: "current"
+    });
+  }
+  return baseSteps;
+}
 
 function EditJobModal({
   job,
@@ -469,6 +523,7 @@ export default function ItemDetailPage() {
   const pendingDays = pendingSince ? Math.floor((Date.now() - new Date(pendingSince).getTime()) / 86400000) : null;
   const dispatchEvent = job?.status_events?.find((event: any) => event.to_status === "DISPATCHED_TO_FACTORY");
   const dispatchAt = dispatchEvent ? new Date(dispatchEvent.timestamp).toLocaleString() : null;
+  const itemJourney = useMemo(() => buildItemJourney(job), [job]);
 
   const handleDownloadLabel = async () => {
     setDownloadError("");
@@ -681,34 +736,111 @@ export default function ItemDetailPage() {
       </div>
 
       <Card className="mt-6">
-        <p className="text-xs uppercase tracking-[0.3em] text-slate">Status Timeline</p>
-        <p className="mt-2 text-lg font-semibold font-display">Status Timeline</p>
-        <Table className="mt-4">
-          <THead>
-            <TR>
-              <TH>From</TH>
-              <TH>To</TH>
-              <TH>By</TH>
-              <TH>At</TH>
-              <TH>Remarks</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {job?.status_events?.map((event: any) => (
-              <TR key={event.id}>
-                <TD>{statusLabel(event.from_status)}</TD>
-                <TD>{statusLabel(event.to_status)}</TD>
-                <TD>
-                  {event.scanned_by_username
-                    ? `${event.scanned_by_username} (${event.scanned_by_role})`
-                    : event.scanned_by_role}
-                </TD>
-                <TD>{new Date(event.timestamp).toLocaleString()}</TD>
-                <TD>{event.override_reason || event.remarks || "-"}</TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-slate">Item Journey</p>
+            <p className="mt-2 text-lg font-semibold font-display">Chain of custody</p>
+            <p className="mt-1 text-sm text-slate">
+              Scan history, current holder, and remarks in the order operators need to read them.
+            </p>
+          </div>
+          {job?.current_status ? <StatusBadge status={job.current_status} /> : null}
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_0.8fr]">
+          <div className="space-y-0">
+            {itemJourney.map((step, index) => {
+              const isDone = step.state === "done";
+              const isCurrent = step.state === "current";
+              const actor = step.event?.scanned_by_username
+                ? `${step.event.scanned_by_username} (${step.event.scanned_by_role})`
+                : step.event?.scanned_by_role;
+              return (
+                <div key={`${step.status}-${index}`} className="relative grid grid-cols-[2rem_1fr] gap-3 pb-5 last:pb-0">
+                  {index < itemJourney.length - 1 ? (
+                    <div
+                      className={cn(
+                        "absolute left-[0.45rem] top-4 h-full w-px",
+                        isDone || isCurrent ? "bg-forest/30" : "bg-ink/10"
+                      )}
+                    />
+                  ) : null}
+                  <div
+                    className={cn(
+                      "relative z-10 mt-1 h-4 w-4 rounded-full border",
+                      isCurrent
+                        ? "border-gold bg-gold shadow-[0_0_0_4px_rgba(212,161,92,0.18)]"
+                        : isDone
+                          ? "border-forest bg-forest"
+                          : "border-ink/14 bg-white"
+                    )}
+                  />
+                  <div
+                    className={cn(
+                      "rounded-2xl border px-4 py-3",
+                      isCurrent
+                        ? "border-gold/40 bg-gold/10"
+                        : isDone
+                          ? "border-ink/8 bg-white/80"
+                          : "border-ink/6 bg-sand/25"
+                    )}
+                  >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{step.title}</p>
+                        <p className="mt-1 text-xs leading-5 text-slate">{step.description}</p>
+                      </div>
+                      <Badge variant={isCurrent ? "warning" : isDone ? "success" : "default"} size="sm" className="w-fit">
+                        {isCurrent ? "Current" : isDone ? "Done" : "Pending"}
+                      </Badge>
+                    </div>
+                    {step.event ? (
+                      <div className="mt-3 rounded-xl border border-ink/8 bg-white/70 px-3 py-2">
+                        <p className="text-xs font-medium text-ink">
+                          {formatEventDate(step.event.timestamp)}{actor ? ` by ${actor}` : ""}
+                        </p>
+                        {step.event.override_reason || step.event.remarks ? (
+                          <p className="mt-1 text-xs text-slate">
+                            {step.event.override_reason ? `Override: ${step.event.override_reason}` : step.event.remarks}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="rounded-2xl border border-ink/8 bg-sand/30 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate">Latest scans</p>
+            <div className="mt-3 space-y-3">
+              {job?.status_events?.length ? (
+                [...job.status_events]
+                  .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                  .slice(0, 6)
+                  .map((event: any) => (
+                    <div key={event.id} className="rounded-xl border border-ink/8 bg-white/80 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-xs font-semibold text-ink">
+                          {statusLabel(event.from_status)}{" -> "}{statusLabel(event.to_status)}
+                        </p>
+                        <span className="shrink-0 text-[10px] text-slate">{formatEventDate(event.timestamp)}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate">
+                        {event.scanned_by_username || event.scanned_by_role}
+                        {event.override_reason ? ` - Override: ${event.override_reason}` : event.remarks ? ` - ${event.remarks}` : ""}
+                      </p>
+                    </div>
+                  ))
+              ) : (
+                <p className="rounded-xl border border-dashed border-ink/10 bg-white/60 px-3 py-6 text-center text-sm text-slate">
+                  No scan events recorded yet.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
       </Card>
 
       {showEditModal && job && (
