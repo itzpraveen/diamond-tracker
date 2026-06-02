@@ -371,6 +371,165 @@ function WorkQueueRow({
   );
 }
 
+type RoleAction = {
+  label: string;
+  description: string;
+  href: string;
+  priority: "high" | "normal";
+};
+
+const roleActionMap: Record<string, RoleAction[]> = {
+  Admin: [
+    {
+      label: "Review open incidents",
+      description: "Start with unresolved exceptions before changing item status.",
+      href: "/incidents?status=OPEN",
+      priority: "high"
+    },
+    {
+      label: "Check audit log",
+      description: "Review recent scan activity and override history.",
+      href: "/audit",
+      priority: "normal"
+    },
+    {
+      label: "Manage users",
+      description: "Add staff, adjust roles, or deactivate access.",
+      href: "/users",
+      priority: "normal"
+    }
+  ],
+  Purchase: [
+    {
+      label: "Create a new item",
+      description: "Enter item details, photos, target date, and print label.",
+      href: "/items",
+      priority: "high"
+    },
+    {
+      label: "Find recent purchases",
+      description: "Search by job ID, phone, or customer details.",
+      href: "/items?status=PURCHASED",
+      priority: "normal"
+    }
+  ],
+  Packing: [
+    {
+      label: "Prepare items for movement",
+      description: "Scan purchased items and mark them ready for voucher movement.",
+      href: "/items?status=PURCHASED",
+      priority: "high"
+    },
+    {
+      label: "Review packed items",
+      description: "Check items waiting for dispatch vouchers.",
+      href: "/items?status=PACKED_READY",
+      priority: "normal"
+    }
+  ],
+  Dispatch: [
+    {
+      label: "Issue to factory",
+      description: "Create an Issue to Factory voucher and scan packed items.",
+      href: "/batches",
+      priority: "high"
+    },
+    {
+      label: "Review delayed vouchers",
+      description: "Follow up vouchers past expected return date.",
+      href: "/batches?delayed=true",
+      priority: "high"
+    },
+    {
+      label: "Open factory queue",
+      description: "See items currently in the factory pipeline.",
+      href: "/items?attention=at_factory",
+      priority: "normal"
+    }
+  ],
+  Factory: [
+    {
+      label: "Receive at factory",
+      description: "Use Receive at Factory vouchers for issued items.",
+      href: "/batches",
+      priority: "high"
+    },
+    {
+      label: "Check factory queue",
+      description: "Review items assigned to factory work.",
+      href: "/items?attention=at_factory",
+      priority: "normal"
+    }
+  ],
+  QC_Stock: [
+    {
+      label: "Receive from factory",
+      description: "Use Receive from Factory when items return to present location.",
+      href: "/batches",
+      priority: "high"
+    },
+    {
+      label: "Move QC to stock",
+      description: "Create QC to Stock vouchers for received items.",
+      href: "/batches",
+      priority: "normal"
+    },
+    {
+      label: "Close returned work",
+      description: "Review items waiting for stock, delivery, or final action.",
+      href: "/items?attention=awaiting_closure",
+      priority: "high"
+    }
+  ],
+  Delivery: [
+    {
+      label: "Open delivery queue",
+      description: "Find items handed to delivery and complete customer handover.",
+      href: "/items?status=HANDED_TO_DELIVERY",
+      priority: "high"
+    },
+    {
+      label: "Check delivered items",
+      description: "Review completed delivery records.",
+      href: "/items?status=DELIVERED_TO_CUSTOMER",
+      priority: "normal"
+    }
+  ]
+};
+
+function getRoleActions(roles: string[]) {
+  const seen = new Set<string>();
+  const actions: RoleAction[] = [];
+  roles.forEach((role) => {
+    (roleActionMap[role] || []).forEach((action) => {
+      const key = `${action.label}-${action.href}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        actions.push(action);
+      }
+    });
+  });
+  return actions.sort((a, b) => (a.priority === b.priority ? 0 : a.priority === "high" ? -1 : 1)).slice(0, 5);
+}
+
+function RoleActionCard({ action }: { action: RoleAction }) {
+  return (
+    <Link
+      href={action.href}
+      className="group rounded-2xl border border-ink/8 bg-white/78 p-4 transition hover:-translate-y-0.5 hover:border-ink/16 hover:bg-white hover:shadow-[var(--shadow-sm)]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-semibold text-ink">{action.label}</p>
+        <Badge variant={action.priority === "high" ? "warning" : "default"} size="sm">
+          {action.priority === "high" ? "Start" : "Next"}
+        </Badge>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-slate">{action.description}</p>
+      <p className="mt-4 text-xs font-semibold text-forest opacity-80 transition group-hover:opacity-100">Open workflow</p>
+    </Link>
+  );
+}
+
 function LoadingPanel() {
   return (
     <div className="flex min-h-[160px] items-center justify-center">
@@ -384,6 +543,7 @@ export default function Dashboard() {
   const { roles } = useAuth();
 
   const isAdmin = roles.includes("Admin");
+  const roleActions = useMemo(() => getRoleActions(roles), [roles]);
   const canViewOps = isAdmin || roles.includes("Dispatch") || roles.includes("QC_Stock");
   const canViewFactory = isAdmin || roles.includes("Dispatch") || roles.includes("Factory");
   const canViewDelays = isAdmin || roles.includes("Dispatch");
@@ -649,6 +809,28 @@ export default function Dashboard() {
           </div>
         </div>
       </Card>
+
+      {roleActions.length ? (
+        <Card className="space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <CardLabel>Start Here</CardLabel>
+              <CardTitle className="mt-2">Actions for your role</CardTitle>
+              <CardDescription className="mt-2">
+                These shortcuts match the roles on your account and reduce the need to remember where each workflow lives.
+              </CardDescription>
+            </div>
+            <Link href="/help" className="w-fit">
+              <Button variant="outline" size="sm">Open Help</Button>
+            </Link>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {roleActions.map((action) => (
+              <RoleActionCard key={`${action.label}-${action.href}`} action={action} />
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard

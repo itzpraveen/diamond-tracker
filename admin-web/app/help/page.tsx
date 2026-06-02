@@ -1,12 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 import AppShell from "@/components/AppShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardLabel, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 const routeRows = [
   {
@@ -97,6 +99,57 @@ const troubleshooting = [
   }
 ];
 
+const taskHelp = [
+  {
+    title: "Create a new item",
+    keywords: "purchase create job label photo item",
+    steps: ["Open Items", "Create the item", "Enter details and photos", "Download or print the label"],
+    href: "/items"
+  },
+  {
+    title: "Issue items to factory",
+    keywords: "dispatch issue factory voucher packed ready",
+    steps: ["Open Vouchers", "Create Issue to Factory", "Select factory", "Scan PACKED_READY items", "Issue voucher"],
+    href: "/batches"
+  },
+  {
+    title: "Factory receive",
+    keywords: "factory receive at factory received factory receipt",
+    steps: ["Open Vouchers", "Create Receive at Factory", "Select factory", "Scan issued items", "Process voucher"],
+    href: "/batches"
+  },
+  {
+    title: "Receive from factory",
+    keywords: "qc receive from factory present location returned shop",
+    steps: ["Open Vouchers", "Create Receive from Factory", "Select factory", "Scan returned items", "Process voucher"],
+    href: "/batches"
+  },
+  {
+    title: "Move QC item to stock",
+    keywords: "qc stock storage added to stock",
+    steps: ["Open Vouchers", "Create QC to Stock", "Scan RECEIVED_AT_SHOP items", "Process voucher"],
+    href: "/batches"
+  },
+  {
+    title: "Hand item to delivery",
+    keywords: "delivery handover qc delivery customer",
+    steps: ["Open Vouchers", "Create QC to Delivery", "Scan received or stock items", "Process voucher"],
+    href: "/batches"
+  },
+  {
+    title: "Report a problem",
+    keywords: "incident mismatch damage missing duplicate wrong cover",
+    steps: ["Open Incidents or item detail", "Create incident", "Describe the issue clearly", "Resolve after verification"],
+    href: "/incidents"
+  },
+  {
+    title: "Understand an item status",
+    keywords: "item journey status holder scan history chain custody",
+    steps: ["Open Items", "Search job ID", "Open item detail", "Read Item Journey and Latest scans"],
+    href: "/items"
+  }
+];
+
 function Section({
   id,
   title,
@@ -122,6 +175,16 @@ function Section({
 }
 
 export default function HelpPage() {
+  const [query, setQuery] = useState("");
+  const filteredTasks = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return taskHelp;
+    return taskHelp.filter((task) => {
+      const searchable = `${task.title} ${task.keywords} ${task.steps.join(" ")}`.toLowerCase();
+      return searchable.includes(normalized);
+    });
+  }, [query]);
+
   return (
     <AppShell>
       <div className="space-y-6 animate-fadeUp">
@@ -159,6 +222,54 @@ export default function HelpPage() {
               </a>
             ))}
           </div>
+        </Card>
+
+        <Card className="space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <CardLabel>Find A Task</CardLabel>
+              <CardTitle className="mt-2">Search common workflows</CardTitle>
+              <CardDescription className="mt-2">
+                Type what the staff member is trying to do, then open the right screen.
+              </CardDescription>
+            </div>
+            <div className="w-full lg:max-w-sm">
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search factory receive, incident, label..."
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {filteredTasks.map((task) => (
+              <Link
+                key={task.title}
+                href={task.href}
+                className="group rounded-2xl border border-ink/8 bg-white/78 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-[var(--shadow-sm)]"
+              >
+                <p className="text-sm font-semibold text-ink">{task.title}</p>
+                <ol className="mt-3 space-y-2">
+                  {task.steps.map((step, index) => (
+                    <li key={step} className="grid grid-cols-[1.35rem_1fr] gap-2 text-xs leading-5 text-slate">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full border border-ink/10 bg-sand/40 text-[10px] font-semibold text-ink">
+                        {index + 1}
+                      </span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-4 text-xs font-semibold text-forest opacity-80 transition group-hover:opacity-100">Open screen</p>
+              </Link>
+            ))}
+          </div>
+          {!filteredTasks.length ? (
+            <div className="rounded-2xl border border-dashed border-ink/10 bg-sand/25 px-4 py-8 text-center">
+              <p className="text-sm font-semibold text-ink">No matching workflow</p>
+              <p className="mt-1 text-xs text-slate">Try searching for voucher, factory, stock, delivery, incident, or label.</p>
+            </div>
+          ) : null}
         </Card>
 
         <Section
