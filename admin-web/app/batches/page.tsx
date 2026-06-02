@@ -88,7 +88,10 @@ type VoucherRoute = {
 };
 
 type BatchRouteResponse = {
-  batch: any;
+  batch: {
+    id: string;
+    target_status?: string | null;
+  };
   updated_job_ids: string[];
   skipped_job_ids: string[];
 };
@@ -799,7 +802,6 @@ function BatchesPageContent() {
   const [selectedCreateFactoryId, setSelectedCreateFactoryId] = useState("");
   const [selectedCreateRouteKey, setSelectedCreateRouteKey] = useState("dispatch_factory");
   const [processVoucherCode, setProcessVoucherCode] = useState("");
-  const [selectedProcessRouteKey, setSelectedProcessRouteKey] = useState("factory_return_receipt");
   const [processMessage, setProcessMessage] = useState("");
   const [createError, setCreateError] = useState("");
   const [processError, setProcessError] = useState("");
@@ -831,7 +833,6 @@ function BatchesPageContent() {
     [roles]
   );
   const selectedCreateRoute = routeForKey(selectedCreateRouteKey);
-  const selectedProcessRoute = routeForKey(selectedProcessRouteKey);
 
   const createMutation = useMutation({
     mutationFn: ({ factoryId, route }: { factoryId: string; route: VoucherRoute }) =>
@@ -856,24 +857,23 @@ function BatchesPageContent() {
   });
 
   const processVoucherMutation = useMutation({
-    mutationFn: ({ voucherCode, route, factoryId }: { voucherCode: string; route: VoucherRoute; factoryId: string }) =>
+    mutationFn: ({ voucherCode }: { voucherCode: string }) =>
       request<BatchRouteResponse>(`/batches/${encodeURIComponent(voucherCode)}/route`, {
         method: "POST",
         body: JSON.stringify({
-          target_status: route.targetStatus,
-          factory_id: route.requiresFactory ? factoryId || undefined : undefined,
-          remarks: `Bulk ${route.title} voucher scan`
+          remarks: "Bulk voucher scan"
         })
       }),
     onSuccess: (result) => {
       const updated = result.updated_job_ids.length;
       const skipped = result.skipped_job_ids.length;
+      const route = routeForTargetStatus(result.batch.target_status);
       setProcessVoucherCode("");
       setProcessError("");
       setProcessMessage(
         skipped
-          ? `${updated} items updated, ${skipped} already processed.`
-          : `${updated} items updated.`
+          ? `${updated} items updated for ${route.title}, ${skipped} already processed.`
+          : `${updated} items updated for ${route.title}.`
       );
       setSelectedBatchId(result.batch.id);
       batchesQuery.refetch();
@@ -941,10 +941,7 @@ function BatchesPageContent() {
     if (!availableRoutes.some((route) => route.key === selectedCreateRouteKey)) {
       setSelectedCreateRouteKey(availableRoutes[0].key);
     }
-    if (!availableRoutes.some((route) => route.key === selectedProcessRouteKey)) {
-      setSelectedProcessRouteKey(availableRoutes[0].key);
-    }
-  }, [availableRoutes, selectedCreateRouteKey, selectedProcessRouteKey]);
+  }, [availableRoutes, selectedCreateRouteKey]);
 
   useEffect(() => {
     if (!activeFactories.length) {
@@ -978,16 +975,10 @@ function BatchesPageContent() {
       setProcessError("Scan or enter a voucher code");
       return;
     }
-    if (!routeAllowedForRoles(selectedProcessRoute, roles)) {
-      setProcessError("Your role cannot process this voucher route");
-      return;
-    }
     setProcessError("");
     setProcessMessage("");
     processVoucherMutation.mutate({
-      voucherCode: normalizedVoucherCode,
-      route: selectedProcessRoute,
-      factoryId: selectedCreateFactoryId
+      voucherCode: normalizedVoucherCode
     });
   };
 
@@ -1054,27 +1045,10 @@ function BatchesPageContent() {
               <div className="space-y-3 rounded-xl border border-ink/8 bg-sand/30 p-4">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-slate">Process Voucher</p>
-                  <p className="mt-1 text-sm font-medium text-ink">Scan one voucher code and apply the selected route to every item inside.</p>
+                  <p className="mt-1 text-sm font-medium text-ink">Scan one voucher code and process the route saved on that voucher.</p>
                 </div>
                 {availableRoutes.length ? (
                   <>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate">Route</label>
-                      <Select
-                        value={selectedProcessRouteKey}
-                        onChange={(e) => {
-                          setSelectedProcessRouteKey(e.target.value);
-                          setProcessError("");
-                          setProcessMessage("");
-                        }}
-                      >
-                        {availableRoutes.map((route) => (
-                          <option key={route.key} value={route.key}>
-                            {route.title} - {routeLabel(route)}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate">Voucher Code</label>
                       <Input
@@ -1097,9 +1071,7 @@ function BatchesPageContent() {
                         }}
                       />
                     </div>
-                    {selectedProcessRoute.requiresFactory && (
-                      <p className="text-xs text-slate">If the voucher already has a factory, it will be used automatically.</p>
-                    )}
+                    <p className="text-xs text-slate">The voucher's factory and route are used automatically.</p>
                     <Button
                       onClick={handleProcessVoucher}
                       disabled={processVoucherMutation.isPending || !processVoucherCode.trim()}

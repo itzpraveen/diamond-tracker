@@ -278,7 +278,7 @@ class BatchDispatchRequest(BaseModel):
 
 
 class BatchRouteRequest(BaseModel):
-    target_status: Status
+    target_status: Optional[Status] = None
     factory_id: Optional[UUID] = None
     processed_at: Optional[datetime] = None
     remarks: Optional[str] = None

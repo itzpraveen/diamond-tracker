@@ -37,7 +37,7 @@ from app.utils.diamond import diamond_carat_value
 from app.utils.pdf import generate_manifest_pdf
 from app.utils.roles import select_role_for_action
 from app.utils.transitions import STATUS_HOLDER_ROLE
-from app.utils.voucher_routes import batch_route, ensure_operator_can_create_route, get_voucher_route
+from app.utils.voucher_routes import batch_route, ensure_batch_matches_target, ensure_operator_can_create_route, get_voucher_route
 from app.utils.vouchers import format_voucher_code, next_voucher_sequence
 
 router = APIRouter(prefix="/batches", tags=["batches"])
@@ -569,8 +569,8 @@ def route_batch(
     if not batch.items:
         raise HTTPException(status_code=400, detail="Voucher has no items")
 
-    target_status = payload.target_status
-    route = get_voucher_route(target_status)
+    target_status = payload.target_status or batch_route(batch).target_status
+    route = ensure_batch_matches_target(batch, target_status)
     ensure_operator_can_create_route(user.roles, route)
 
     if route.requires_factory:
